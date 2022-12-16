@@ -1,0 +1,426 @@
+package cert
+
+import (
+	"crypto"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
+	"math/big"
+	"net"
+	"net/url"
+	"time"
+
+	"software.sslmate.com/src/go-pkcs12"
+
+	"gocm-api/models"
+)
+
+type CertType string
+
+type CertData struct {
+	CAID           string
+	Serial         uint32
+	CommonName     string
+	PrivateKey     PrivateKey
+	Type           CertType
+	PemData        string
+	Created        string
+	ExpirationDate string
+}
+
+type CreateCertRequest struct {
+	Subject        pkix.Name
+	Serial         uint32
+	DNSNames       []string
+	IPAddresses    []net.IP
+	URIs           []*url.URL
+	EmailAddresses []string
+}
+
+const (
+	DT_FORMAT string = "2006-01-02T15:04:05"
+
+	CA_EXPIRE time.Duration = 3153600000 * time.Second // 100年
+	SV_EXPIRE time.Duration = 33696000 * time.Second   // 390日
+	CL_EXPIRE time.Duration = 3153600000 * time.Second // 100年
+
+	UNKNOWN_CERT_TYPE CertType = "UNKNOWN"
+	CA                CertType = "CA"
+	SERVER            CertType = "SERVER"
+	CLIENT            CertType = "CLIENT"
+)
+
+func ToCertData(
+	password string, tcert models.TranCertificate) (*CertData, error) {
+
+	pempk, err := decrypt(password, tcert.PrivateKey)
+
+	if err != nil {
+		return nil, err
+	}
+
+	priv, err := toPrivateKey(pempk)
+
+	if err != nil {
+		return nil, err
+	}
+
+	cert := &CertData{
+		CAID:           tcert.CAID,
+		Serial:         tcert.Serial,
+		CommonName:     tcert.CommonName,
+		PrivateKey:     priv,
+		Type:           CertType(tcert.CertType),
+		PemData:        tcert.CertData,
+		Created:        tcert.Created,
+		ExpirationDate: tcert.ExpirationDate,
+	}
+
+	return cert, nil
+}
+
+func CreateCACert(
+	req *CreateCertRequest, caid string, priv PrivateKey) (*CertData, error) {
+
+	created := time.Now()
+	expire := created.Add(CA_EXPIRE)
+	usage := x509.KeyUsageDigitalSignature |
+		x509.KeyUsageCertSign |
+		x509.KeyUsageCRLSign
+
+	tpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(int64(req.Serial)),
+		Subject:               req.Subject,
+		NotAfter:              expire,
+		NotBefore:             created,
+		KeyUsage:              usage,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+
+	pem_data, err := createCertificate(tpl, tpl, priv.Key.Public(), priv.Key)
+
+	if err != nil {
+		return nil, err
+	}
+
+	data := CertData{
+		CAID:           caid,
+		Serial:         req.Serial,
+		CommonName:     req.Subject.CommonName,
+		PrivateKey:     priv,
+		Type:           CA,
+		PemData:        pem_data,
+		Created:        created.Format(DT_FORMAT),
+		ExpirationDate: expire.Format(DT_FORMAT),
+	}
+
+	return &data, nil
+}
+
+func CreateServerCert(req *CreateCertRequest, ca *CertData) (*CertData, error) {
+	created := time.Now()
+	expire := created.Add(SV_EXPIRE)
+
+	usage := x509.KeyUsageDigitalSignature |
+		x509.KeyUsageContentCommitment |
+		x509.KeyUsageKeyEncipherment |
+		x509.KeyUsageKeyAgreement
+
+	ext_key_usage := []x509.ExtKeyUsage{
+		x509.ExtKeyUsageServerAuth,
+	}
+
+	tpl := &x509.Certificate{
+		SerialNumber:   big.NewInt(int64(req.Serial)),
+		Subject:        req.Subject,
+		NotAfter:       expire,
+		NotBefore:      created,
+		KeyUsage:       usage,
+		ExtKeyUsage:    ext_key_usage,
+		DNSNames:       req.DNSNames,
+		IPAddresses:    req.IPAddresses,
+		URIs:           req.URIs,
+		EmailAddresses: req.EmailAddresses,
+	}
+
+	cacert, err := ca.toX509CertificateData()
+
+	if err != nil {
+		return nil, err
+	}
+
+	priv, err := ca.newPrivateKey()
+
+	if err != nil {
+		return nil, err
+	}
+
+	pem_data, err := createCertificate(
+		tpl, cacert, priv.Key.Public(), ca.PrivateKey.Key)
+
+	if err != nil {
+		return nil, err
+	}
+
+	data := CertData{
+		CAID:           ca.CAID,
+		Serial:         req.Serial,
+		CommonName:     req.Subject.CommonName,
+		PrivateKey:     priv,
+		Type:           SERVER,
+		PemData:        pem_data,
+		Created:        created.Format(DT_FORMAT),
+		ExpirationDate: expire.Format(DT_FORMAT),
+	}
+
+	return &data, nil
+}
+
+func CreateClientCert(req *CreateCertRequest, ca *CertData) (*CertData, error) {
+	created := time.Now()
+	expire := created.Add(CL_EXPIRE)
+
+	usage := x509.KeyUsageDigitalSignature |
+		x509.KeyUsageContentCommitment |
+		x509.KeyUsageKeyEncipherment
+
+	ext_key_usage := []x509.ExtKeyUsage{
+		x509.ExtKeyUsageClientAuth,
+	}
+
+	tpl := &x509.Certificate{
+		SerialNumber: big.NewInt(int64(req.Serial)),
+		Subject:      req.Subject,
+		NotAfter:     expire,
+		NotBefore:    created,
+		KeyUsage:     usage,
+		ExtKeyUsage:  ext_key_usage,
+	}
+
+	cacert, err := ca.toX509CertificateData()
+
+	if err != nil {
+		return nil, err
+	}
+
+	priv, err := ca.newPrivateKey()
+
+	if err != nil {
+		return nil, err
+	}
+
+	pem_data, err := createCertificate(
+		tpl, cacert, priv.Key.Public(), ca.PrivateKey.Key)
+
+	if err != nil {
+		return nil, err
+	}
+
+	data := CertData{
+		CAID:           ca.CAID,
+		Serial:         req.Serial,
+		CommonName:     req.Subject.CommonName,
+		PrivateKey:     priv,
+		Type:           CLIENT,
+		PemData:        pem_data,
+		Created:        created.Format(DT_FORMAT),
+		ExpirationDate: expire.Format(DT_FORMAT),
+	}
+
+	return &data, nil
+}
+
+func (c *CertData) UpdateCert(serial uint32, ca *CertData) (*CertData, error) {
+	old_cert, err := c.toX509CertificateData()
+
+	if err != nil {
+		return nil, err
+	}
+
+	created := time.Now()
+	expire := created.Add(old_cert.NotAfter.Sub(old_cert.NotBefore))
+
+	tpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(int64(serial)),
+		Subject:               old_cert.Subject,
+		NotAfter:              expire,
+		NotBefore:             created,
+		KeyUsage:              old_cert.KeyUsage,
+		ExtKeyUsage:           old_cert.ExtKeyUsage,
+		DNSNames:              old_cert.DNSNames,
+		IPAddresses:           old_cert.IPAddresses,
+		URIs:                  old_cert.URIs,
+		EmailAddresses:        old_cert.EmailAddresses,
+		IsCA:                  old_cert.IsCA,
+		BasicConstraintsValid: old_cert.BasicConstraintsValid,
+	}
+
+	priv, err := c.newPrivateKey()
+
+	if err != nil {
+		return nil, err
+	}
+
+	var pem_data string
+
+	if c.Type == CA {
+		pem_data, err = createCertificate(tpl, tpl, priv.Key.Public(), priv.Key)
+
+	} else {
+		cacert, err := ca.toX509CertificateData()
+
+		if err != nil {
+			return nil, err
+		}
+
+		pem_data, err = createCertificate(
+			tpl, cacert, priv.Key.Public(), ca.PrivateKey.Key)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	data := CertData{
+		CAID:           c.CAID,
+		Serial:         serial,
+		CommonName:     tpl.Subject.CommonName,
+		PrivateKey:     priv,
+		Type:           c.Type,
+		PemData:        pem_data,
+		Created:        created.Format(DT_FORMAT),
+		ExpirationDate: expire.Format(DT_FORMAT),
+	}
+
+	return &data, nil
+}
+
+func (c *CertData) ToPkcs12(pin string) ([]byte, error) {
+	if c.Type != CLIENT {
+		e := errors.New("クライアント証明書のデータを入力してください")
+		return nil, e
+	}
+
+	cert, err := c.toX509CertificateData()
+
+	if err != nil {
+		return []byte{}, err
+	}
+
+	return pkcs12.Encode(rand.Reader, c.PrivateKey.Key, cert, nil, pin)
+}
+
+func (c *CertData) TranCertificate(
+	password string) (models.TranCertificate, error) {
+
+	priv, err := c.PrivateKey.toPem()
+
+	if err != nil {
+		return models.TranCertificate{}, err
+	}
+
+	encrypted, err := encrypt(password, priv)
+
+	if err != nil {
+		return models.TranCertificate{}, err
+	}
+
+	tc := models.TranCertificate{
+		CAID:           c.CAID,
+		Serial:         c.Serial,
+		CommonName:     c.CommonName,
+		PrivateKey:     encrypted,
+		CertType:       string(c.Type),
+		CertData:       c.PemData,
+		Created:        c.Created,
+		ExpirationDate: c.ExpirationDate,
+		IsRevoked:      0,
+		Revoked:        "",
+	}
+
+	return tc, nil
+}
+
+func createCertificate(template *x509.Certificate, parent *x509.Certificate,
+	pub crypto.PublicKey, priv crypto.Signer) (string, error) {
+
+	cert, err := x509.CreateCertificate(
+		rand.Reader, template, parent, pub, priv)
+
+	if err != nil {
+		return "", err
+	}
+
+	block := &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: cert,
+	}
+
+	data := pem.EncodeToMemory(block)
+
+	if data != nil {
+		return string(data), nil
+
+	} else {
+		e := errors.New("PEM形式のデータ変換に失敗しました")
+		return "", e
+	}
+}
+
+func (c *CertData) newPrivateKey() (PrivateKey, error) {
+	var priv PrivateKey
+	var err error
+
+	switch c.PrivateKey.Algorithm {
+	case RSA:
+		size := c.PrivateKey.getKeySize()
+
+		if size < 2048 {
+			err := errors.New("秘密鍵のRSA鍵長が取得できませんでした")
+			return PrivateKey{}, err
+		}
+
+		priv, err = GenerateRSAKey(size)
+
+	case ECDSA:
+		size := c.PrivateKey.getKeySize()
+
+		if size < 256 {
+			err := errors.New("秘密鍵のECDSA鍵長が取得できませんでした")
+			return PrivateKey{}, err
+		}
+
+		priv, err = GenerateECDSAKey(size)
+
+	case ED25519:
+		priv, err = GenerateED25519Key()
+	}
+
+	if err != nil {
+		return PrivateKey{}, err
+
+	} else {
+		return priv, nil
+	}
+}
+
+func (c *CertData) toX509CertificateData() (*x509.Certificate, error) {
+	if len(c.PemData) == 0 {
+		return nil, errors.New("PEM形式の証明書データがありません")
+	}
+
+	block, _ := pem.Decode([]byte(c.PemData))
+
+	if block == nil {
+		return nil, errors.New("DER形式のデータ変換に失敗しました")
+	}
+
+	if block.Type != "CERTIFICATE" {
+		return nil, errors.New("入力されたデータは証明書データではありません")
+	}
+
+	return x509.ParseCertificate(block.Bytes)
+}

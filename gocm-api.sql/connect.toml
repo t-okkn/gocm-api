@@ -1,0 +1,15 @@
+db_type = "mysql"
+
+[database]
+user = ""
+password = ""
+server = "localhost"
+port = 3306
+name = "" # database名
+
+  [database.tls]
+  disable = true
+  caonly = true
+  ca = ""
+  cert = ""
+  key = ""
