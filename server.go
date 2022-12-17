@@ -45,8 +45,7 @@ var (
 // その他証明書新規：何もせず新規作成
 // その他証明書更新：特定の有効な証明書を破棄＆新規作成
 //
-// * CA証明書の鍵作成をserver側でなく内部へ持っていく
-// * UpdateとNewを一つの関数にまとめる
+// * Updateを一つの関数にまとめる
 */
 
 /*
@@ -282,153 +281,7 @@ func auditAllCerts(c *gin.Context) {
 }
 
 func newCACert(c *gin.Context) {
-	var req models.NewCACertRequest
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errInvalidRequestedData)
-		c.Abort()
-		return
-	}
-
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	caid := cainfo.Id
-	capcs, err := repo.CheckCACert(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	cadata, err := repo.GetCACerts(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if capcs != 0 {
-		if len(cadata) == 1 {
-			c.JSON(http.StatusConflict, errExistsValidCACert)
-			c.Abort()
-			return
-
-		} else if len(cadata) > 1 {
-			c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-			c.Abort()
-			return
-		}
-	}
-
-	var cakey cert.PrivateKey
-
-	switch strings.ToUpper(req.PrivateKeyAlgorithm) {
-	case "RSA":
-		if req.Bits != 2048 && req.Bits != 4096 {
-			c.JSON(http.StatusBadRequest, errIncompatibleBits)
-			c.Abort()
-			return
-		}
-
-		cakey, err = cert.GenerateRSAKey(req.Bits)
-
-	case "ECDSA":
-		if req.Bits != 256 && req.Bits != 384 && req.Bits != 521 {
-			c.JSON(http.StatusBadRequest, errIncompatibleBits)
-			c.Abort()
-			return
-		}
-
-		cakey, err = cert.GenerateECDSAKey(req.Bits)
-
-	case "ED25519":
-		cakey, err = cert.GenerateED25519Key()
-
-	default:
-		c.JSON(http.StatusBadRequest, errInvalidAlgorithm)
-		c.Abort()
-		return
-	}
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	serial := uint32(1)
-
-	if capcs != 0 && len(cadata) == 0 {
-		max, err := repo.GetMaxSerialNumber(caid)
-
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, errFailedGetData)
-			c.Abort()
-			return
-		}
-
-		serial = uint32(max) + 1
-	}
-
-	cert_req := &cert.CreateCACertRequest{
-		CAID:       caid,
-		PrivateKey: cakey,
-		Subject:    toPkixName(req.Subject),
-		Serial:     serial,
-	}
-
-	cacert, err := cert.CreateCACert(cert_req)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	password, ok := checkPassword(c, cainfo.Password)
-	if !ok {
-		return
-	}
-
-	db_cacert, err := cacert.TranCertificate(password)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	if err := repo.InsertCert(db_cacert); err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedOperateData)
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusCreated, models.NewCertResponse{
-		CAID:       caid,
-		Serial:     serial,
-		CommonName: db_cacert.CommonName,
-	})
+	newCertificate(c, cert.CA)
 }
 
 func getCACert(c *gin.Context) {
@@ -579,153 +432,7 @@ func updateCACert(c *gin.Context) {
 }
 
 func newServerCert(c *gin.Context) {
-	var req models.NewServerCertRequest
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errInvalidRequestedData)
-		c.Abort()
-		return
-	}
-
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	caid := cainfo.Id
-	cadata, err := repo.GetCACerts(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(cadata) == 0 {
-		c.JSON(http.StatusNotFound, errNotFoundValidCACert)
-		c.Abort()
-		return
-
-	} else if len(cadata) > 1 {
-		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-		c.Abort()
-		return
-	}
-
-	password, ok := checkPassword(c, cainfo.Password)
-	if !ok {
-		return
-	}
-
-	ca, err := cert.ToCertData(password, cadata[0])
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	max, err := repo.GetMaxSerialNumber(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	serial := uint32(max) + 1
-	cert_req := cert.CreateServerCertRequest{
-		CommonName: req.CommonName,
-		Serial:     serial,
-	}
-
-	cert_req.DNSNames = make([]string, 0, len(req.SubjectAltName))
-	cert_req.IPAddresses = make([]net.IP, 0, len(req.SubjectAltName))
-	cert_req.URIs = make([]*url.URL, 0, len(req.SubjectAltName))
-	cert_req.EmailAddresses = make([]string, 0, len(req.SubjectAltName))
-
-	for _, v := range req.SubjectAltName {
-		switch {
-		case strings.HasPrefix(v, "DNS:"):
-			content := strings.Replace(v, "DNS:", "", 1)
-			cert_req.DNSNames = append(cert_req.DNSNames, content)
-
-		case strings.HasPrefix(v, "IP:"):
-			content := strings.Replace(v, "IP:", "", 1)
-			ipdata := net.ParseIP(content)
-
-			if ipdata == nil {
-				break
-			}
-
-			cert_req.IPAddresses = append(cert_req.IPAddresses, ipdata)
-
-		case strings.HasPrefix(v, "URI:"):
-			content := strings.Replace(v, "URI:", "", 1)
-			urldata, err := url.Parse(content)
-
-			if err != nil {
-				break
-			}
-
-			cert_req.URIs = append(cert_req.URIs, urldata)
-
-		case strings.HasPrefix(v, "email:"):
-			content := strings.Replace(v, "email:", "", 1)
-			cert_req.EmailAddresses = append(cert_req.EmailAddresses, content)
-		}
-	}
-
-	if len(cert_req.DNSNames) == 0 && len(cert_req.IPAddresses) == 0 &&
-		len(cert_req.URIs) == 0 && len(cert_req.EmailAddresses) == 0 {
-
-		c.JSON(http.StatusBadRequest, errInvalidSANs)
-		c.Abort()
-		return
-	}
-
-	svcert, err := cert.CreateServerCert(&cert_req, ca)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	db_cacert, err := svcert.TranCertificate(password)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	if err := repo.InsertCert(db_cacert); err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedOperateData)
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusCreated, models.NewCertResponse{
-		CAID:       caid,
-		Serial:     serial,
-		CommonName: db_cacert.CommonName,
-	})
+	newCertificate(c, cert.SERVER)
 }
 
 func getServerCert(c *gin.Context) {
@@ -935,103 +642,7 @@ func updateServerCert(c *gin.Context) {
 }
 
 func newClientCert(c *gin.Context) {
-	var req models.NewClientCertRequest
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, errInvalidRequestedData)
-		c.Abort()
-		return
-	}
-
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	caid := cainfo.Id
-	cadata, err := repo.GetCACerts(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(cadata) == 0 {
-		c.JSON(http.StatusNotFound, errNotFoundValidCACert)
-		c.Abort()
-		return
-
-	} else if len(cadata) > 1 {
-		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-		c.Abort()
-		return
-	}
-
-	password, ok := checkPassword(c, cainfo.Password)
-	if !ok {
-		return
-	}
-
-	ca, err := cert.ToCertData(password, cadata[0])
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	max, err := repo.GetMaxSerialNumber(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	serial := uint32(max) + 1
-	clcert, err := cert.CreateClientCert(serial, req.CommonName, ca)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	db_cacert, err := clcert.TranCertificate(password)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	if err := repo.InsertCert(db_cacert); err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedOperateData)
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusCreated, models.NewCertResponse{
-		CAID:       caid,
-		Serial:     serial,
-		CommonName: db_cacert.CommonName,
-	})
+	newCertificate(c, cert.CLIENT)
 }
 
 func getClientCert(c *gin.Context) {
@@ -1270,6 +881,7 @@ func updateClientCert(c *gin.Context) {
 	})
 }
 
+// 認証局の情報を取得します
 func getCAInfoData(c *gin.Context) (models.TranCAInfo, bool) {
 	id_prm := c.Param("id")
 	cainfo, err := repo.GetCAInfo(id_prm)
@@ -1283,6 +895,8 @@ func getCAInfoData(c *gin.Context) (models.TranCAInfo, bool) {
 	return cainfo, true
 }
 
+// リクエストされたパスワードが正しいか確認し、
+// 正しい場合はパスワードを取得します
 func checkPassword(c *gin.Context, hashedPass string) (string, bool) {
 	password := c.GetHeader(CA_PASSWORD)
 
@@ -1294,6 +908,306 @@ func checkPassword(c *gin.Context, hashedPass string) (string, bool) {
 	}
 
 	return password, true
+}
+
+// 各種証明書を新規作成します
+func newCertificate(c *gin.Context, certType cert.CertType) {
+	if repo == nil {
+		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
+		c.Abort()
+		return
+	}
+
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
+		return
+	}
+
+	// -----
+	// 有効なCA証明書の取得を試みます
+	// -----
+	caid := cainfo.Id
+	cadata, err := repo.GetCACerts(caid)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errFailedGetData)
+		c.Abort()
+		return
+	}
+
+	// -----
+	// CA証明書の状態に関しての確認を行います
+	// -----
+	var ca_count int64 = 0
+
+	switch certType {
+	case cert.CA:
+		ca_count, err = repo.CheckCACert(caid)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errFailedGetData)
+			c.Abort()
+			return
+		}
+
+		// CA証明書が1枚も発行されていない場合はCA証明書に関するチェックは不要
+		if ca_count == 0 {
+			break
+		}
+
+		if len(cadata) == 1 {
+			c.JSON(http.StatusConflict, errExistsValidCACert)
+			c.Abort()
+			return
+	
+		} else if len(cadata) > 1 {
+			c.JSON(http.StatusInternalServerError, errInvalidCertStore)
+			c.Abort()
+			return
+		}
+
+	case cert.SERVER, cert.CLIENT:
+		if len(cadata) == 0 {
+			c.JSON(http.StatusNotFound, errNotFoundValidCACert)
+			c.Abort()
+			return
+	
+		} else if len(cadata) > 1 {
+			c.JSON(http.StatusInternalServerError, errInvalidCertStore)
+			c.Abort()
+			return
+		}
+	}
+
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
+		return
+	}
+
+	// -----
+	// CA証明書とシリアル番号の取得を行います
+	// -----
+	var serial uint32 = 0
+	var ca *cert.CertData
+
+	// シリアル番号を更新するかどうかを決める変数
+	is_updatable := true
+
+	switch certType {
+	case cert.CA:
+		if ca_count == 0 {
+			serial = 1
+			is_updatable = false
+		}
+
+	case cert.SERVER, cert.CLIENT:
+		ca, err = cert.ToCertData(password, cadata[0])
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorMessage{
+				Code:    "E501",
+				Message: err.Error(),
+			})
+			c.Abort()
+			return
+		}
+	}
+
+	if is_updatable {
+		max, err := repo.GetMaxSerialNumber(caid)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errFailedGetData)
+			c.Abort()
+			return
+		}
+
+		serial = uint32(max) + 1
+	}
+
+	// -----
+	// 各種証明書の発行を行います
+	// -----
+	var newcert *cert.CertData
+
+	switch certType {
+	case cert.CA:
+		var req models.NewCACertRequest
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, errInvalidRequestedData)
+			c.Abort()
+			return
+		}
+
+		if req.Subject.CommonName == "" {
+			c.JSON(http.StatusBadRequest, errInvalidRequestedData)
+			c.Abort()
+			return
+		}
+
+		certreq, ok := getCACertRequest(c, req)
+
+		if !ok {
+			return
+		}
+
+		certreq.CAID = caid
+		certreq.Serial = serial
+		newcert, err = cert.CreateCACert(certreq)
+
+	case cert.SERVER:
+		var req models.NewServerCertRequest
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, errInvalidRequestedData)
+			c.Abort()
+			return
+		}
+
+		if req.CommonName == "" {
+			c.JSON(http.StatusBadRequest, errInvalidRequestedData)
+			c.Abort()
+			return
+		}
+
+		certreq, ok := getServerCertRequest(req)
+
+		if !ok {
+			c.JSON(http.StatusBadRequest, errInvalidSANs)
+			c.Abort()
+			return
+		}
+
+		certreq.Serial = serial
+		newcert, err = cert.CreateServerCert(certreq, ca)
+
+	case cert.CLIENT:
+		var req models.NewClientCertRequest
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, errInvalidRequestedData)
+			c.Abort()
+			return
+		}
+
+		if req.CommonName == "" {
+			c.JSON(http.StatusBadRequest, errInvalidRequestedData)
+			c.Abort()
+			return
+		}
+
+		newcert, err = cert.CreateClientCert(serial, req.CommonName, ca)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorMessage{
+			Code:    "E501",
+			Message: err.Error(),
+		})
+		c.Abort()
+		return
+	}
+
+	// -----
+	// DBへ証明書データを格納します
+	// -----
+	db_newcert, err := newcert.TranCertificate(password)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorMessage{
+			Code:    "E501",
+			Message: err.Error(),
+		})
+		c.Abort()
+		return
+	}
+
+	if err := repo.InsertCert(db_newcert); err != nil {
+		c.JSON(http.StatusInternalServerError, errFailedOperateData)
+		c.Abort()
+		return
+	}
+
+	// -----
+	// クライアントへ作成した証明書の情報を渡します
+	// -----
+	c.JSON(http.StatusCreated, models.NewCertResponse{
+		CAID:       caid,
+		Serial:     serial,
+		CommonName: db_newcert.CommonName,
+	})
+}
+
+func getCACertRequest(c *gin.Context, data models.NewCACertRequest) (
+	*cert.CreateCACertRequest, bool) {
+
+	var cakey cert.PrivateKey
+	var err error
+
+	switch strings.ToUpper(data.PrivateKeyAlgorithm) {
+	case "RSA":
+		if data.Bits != 2048 && data.Bits != 4096 {
+			c.JSON(http.StatusBadRequest, errIncompatibleBits)
+			c.Abort()
+			return nil, false
+		}
+
+		cakey, err = cert.GenerateRSAKey(data.Bits)
+
+	case "ECDSA":
+		if data.Bits != 256 && data.Bits != 384 && data.Bits != 521 {
+			c.JSON(http.StatusBadRequest, errIncompatibleBits)
+			c.Abort()
+			return nil, false
+		}
+
+		cakey, err = cert.GenerateECDSAKey(data.Bits)
+
+	case "ED25519":
+		cakey, err = cert.GenerateED25519Key()
+
+	default:
+		c.JSON(http.StatusBadRequest, errInvalidAlgorithm)
+		c.Abort()
+		return nil, false
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorMessage{
+			Code:    "E501",
+			Message: err.Error(),
+		})
+		c.Abort()
+		return nil, false
+	}
+
+	name := pkix.Name{
+		CommonName: data.Subject.CommonName,
+	}
+
+	if data.Subject.Country != "" {
+		name.Country = []string{data.Subject.Country}
+	}
+
+	if data.Subject.State != "" {
+		name.Province = []string{data.Subject.State}
+	}
+
+	if data.Subject.Locality != "" {
+		name.Locality = []string{data.Subject.Locality}
+	}
+
+	if data.Subject.Organization != "" {
+		name.Organization = []string{data.Subject.Organization}
+	}
+
+	req := &cert.CreateCACertRequest{
+		PrivateKey: cakey,
+		Subject:    name,
+	}
+
+	return req, true
 }
 
 // DBとの接続についての初期処理を行います
@@ -1318,30 +1232,61 @@ func initDB() *db.Repository {
 	return db.NewRepository(dbmap)
 }
 
-func toPkixName(subject models.Subject) pkix.Name {
-	data := pkix.Name{
-		CommonName: subject.CommonName,
+// リクエストされたサーバ証明書作成用の構造体からデータを詰め替えます
+func getServerCertRequest(
+	data models.NewServerCertRequest) (*cert.CreateServerCertRequest, bool) {
+
+	req := cert.CreateServerCertRequest{
+		CommonName: data.CommonName,
 	}
 
-	if subject.Country != "" {
-		data.Country = []string{subject.Country}
+	req.DNSNames = make([]string, 0, len(data.SubjectAltName))
+	req.IPAddresses = make([]net.IP, 0, len(data.SubjectAltName))
+	req.URIs = make([]*url.URL, 0, len(data.SubjectAltName))
+	req.EmailAddresses = make([]string, 0, len(data.SubjectAltName))
+
+	for _, v := range data.SubjectAltName {
+		switch {
+		case strings.HasPrefix(v, "DNS:"):
+			content := strings.Replace(v, "DNS:", "", 1)
+			req.DNSNames = append(req.DNSNames, content)
+
+		case strings.HasPrefix(v, "IP:"):
+			content := strings.Replace(v, "IP:", "", 1)
+			ipdata := net.ParseIP(content)
+
+			if ipdata == nil {
+				break
+			}
+
+			req.IPAddresses = append(req.IPAddresses, ipdata)
+
+		case strings.HasPrefix(v, "URI:"):
+			content := strings.Replace(v, "URI:", "", 1)
+			urldata, err := url.Parse(content)
+
+			if err != nil {
+				break
+			}
+
+			req.URIs = append(req.URIs, urldata)
+
+		case strings.HasPrefix(v, "email:"):
+			content := strings.Replace(v, "email:", "", 1)
+			req.EmailAddresses = append(req.EmailAddresses, content)
+		}
 	}
 
-	if subject.State != "" {
-		data.Province = []string{subject.State}
+	if len(req.DNSNames) == 0 && len(req.IPAddresses) == 0 &&
+		len(req.URIs) == 0 && len(req.EmailAddresses) == 0 {
+
+		return nil, false
 	}
 
-	if subject.Locality != "" {
-		data.Locality = []string{subject.Locality}
-	}
-
-	if subject.Organization != "" {
-		data.Organization = []string{subject.Organization}
-	}
-
-	return data
+	return &req, true
 }
 
+// 許可されている文字以外を除外します
 func sanitize(input string) string {
 	var sb strings.Builder
 	sb.Grow(len(input))

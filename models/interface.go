@@ -11,7 +11,7 @@ type Subject struct {
 type NewCACertRequest struct {
 	Subject             Subject `json:"subject" binding:"required"`
 	PrivateKeyAlgorithm string  `json:"private_key_algorithm" binding:"required"`
-	Bits                int     `json:"bits" binding:"required"`
+	Bits                int     `json:"bits"`
 }
 
 type NewServerCertRequest struct {
