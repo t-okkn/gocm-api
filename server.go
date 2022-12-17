@@ -47,9 +47,8 @@ var (
 */
 
 /*
-<summary>: 待ち受けるサーバのルーターを定義します
-
-	<remark>: httpHandlerを受け取る関数にそのまま渡せる
+待ち受けるサーバのルーターを定義します。
+httpHandlerを受け取る関数にそのまま渡せます。
 */
 func SetupRouter() *gin.Engine {
 	router := gin.Default()
@@ -140,19 +139,14 @@ func newCA(c *gin.Context) {
 }
 
 func getCAInfo(c *gin.Context) {
-	id_prm := c.Param("id")
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -196,34 +190,22 @@ func getCAInfo(c *gin.Context) {
 }
 
 func destroyCA(c *gin.Context) {
-	id_prm := c.Param("id")
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
-	caid := cainfo.Id
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
+	if _, ok := checkPassword(c, cainfo.Password); !ok {
 		return
 	}
 
-	if err := repo.DestroyCA(caid, cainfo); err != nil {
+	if err := repo.DestroyCA(cainfo.Id, cainfo); err != nil {
 		c.JSON(http.StatusInternalServerError, errFailedOperateData)
 		c.Abort()
 		return
@@ -233,20 +215,14 @@ func destroyCA(c *gin.Context) {
 }
 
 func auditAllCerts(c *gin.Context) {
-	id_prm := c.Param("id")
-	days_qry := c.DefaultQuery("days", "30")
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -259,6 +235,7 @@ func auditAllCerts(c *gin.Context) {
 		return
 	}
 
+	days_qry := c.DefaultQuery("days", "30")
 	days, err := strconv.Atoi(days_qry)
 
 	// 不正な文字列、1未満365より大きい数は強制的に30日
@@ -302,7 +279,6 @@ func auditAllCerts(c *gin.Context) {
 }
 
 func newCACert(c *gin.Context) {
-	id_prm := c.Param("id")
 	var req models.NewCACertRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -317,11 +293,8 @@ func newCACert(c *gin.Context) {
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -353,16 +326,6 @@ func newCACert(c *gin.Context) {
 			c.Abort()
 			return
 		}
-	}
-
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
-		return
 	}
 
 	var cakey cert.PrivateKey
@@ -436,6 +399,11 @@ func newCACert(c *gin.Context) {
 		return
 	}
 
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
+		return
+	}
+
 	db_cacert, err := cacert.TranCertificate(password)
 
 	if err != nil {
@@ -461,19 +429,14 @@ func newCACert(c *gin.Context) {
 }
 
 func getCACert(c *gin.Context) {
-	id_prm := c.Param("id")
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -508,19 +471,14 @@ func getCACert(c *gin.Context) {
 }
 
 func updateCACert(c *gin.Context) {
-	id_prm := c.Param("id")
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -553,13 +511,8 @@ func updateCACert(c *gin.Context) {
 		return
 	}
 
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
 		return
 	}
 
@@ -623,7 +576,6 @@ func updateCACert(c *gin.Context) {
 }
 
 func newServerCert(c *gin.Context) {
-	id_prm := c.Param("id")
 	var req models.NewServerCertRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -638,11 +590,8 @@ func newServerCert(c *gin.Context) {
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -666,13 +615,8 @@ func newServerCert(c *gin.Context) {
 		return
 	}
 
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
 		return
 	}
 
@@ -782,25 +726,18 @@ func newServerCert(c *gin.Context) {
 }
 
 func getServerCert(c *gin.Context) {
-	id_prm := c.Param("id")
-	serial_qry := c.DefaultQuery("serial", "0")
-	common_name := sanitize(c.DefaultQuery("cn", ""))
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
-	caid := cainfo.Id
+	serial_qry := c.DefaultQuery("serial", "0")
 	serial, err := strconv.ParseUint(serial_qry, 10, 0)
 
 	if err != nil || serial > uint64(^uint32(0)) {
@@ -809,11 +746,13 @@ func getServerCert(c *gin.Context) {
 		return
 	}
 
+	common_name := sanitize(c.DefaultQuery("cn", ""))
 	db_req := models.DBRequest{
 		Serial:     uint32(serial),
 		CommonName: common_name,
 	}
 
+	caid := cainfo.Id
 	svdata, err := repo.GetServerCerts(caid, db_req)
 
 	if err != nil {
@@ -853,20 +792,14 @@ func getServerCert(c *gin.Context) {
 }
 
 func updateServerCert(c *gin.Context) {
-	id_prm := c.Param("id")
-	serial_prm := c.Param("serial")
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -890,6 +823,7 @@ func updateServerCert(c *gin.Context) {
 		return
 	}
 
+	serial_prm := c.Param("serial")
 	serial, err := strconv.ParseUint(serial_prm, 10, 0)
 
 	if err != nil || serial > uint64(^uint32(0)) {
@@ -922,13 +856,8 @@ func updateServerCert(c *gin.Context) {
 		return
 	}
 
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
 		return
 	}
 
@@ -1003,7 +932,6 @@ func updateServerCert(c *gin.Context) {
 }
 
 func newClientCert(c *gin.Context) {
-	id_prm := c.Param("id")
 	var req models.NewClientCertRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1018,11 +946,8 @@ func newClientCert(c *gin.Context) {
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -1046,13 +971,8 @@ func newClientCert(c *gin.Context) {
 		return
 	}
 
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
 		return
 	}
 
@@ -1113,35 +1033,18 @@ func newClientCert(c *gin.Context) {
 }
 
 func getClientCert(c *gin.Context) {
-	id_prm := c.Param("id")
-	serial_qry := c.DefaultQuery("serial", "0")
-	common_name := sanitize(c.DefaultQuery("cn", ""))
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
-	caid := cainfo.Id
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
-		return
-	}
-
+	serial_qry := c.DefaultQuery("serial", "0")
 	serial, err := strconv.ParseUint(serial_qry, 10, 0)
 
 	if err != nil || serial > uint64(^uint32(0)) {
@@ -1150,11 +1053,18 @@ func getClientCert(c *gin.Context) {
 		return
 	}
 
+	common_name := sanitize(c.DefaultQuery("cn", ""))
 	db_req := models.DBRequest{
 		Serial:     uint32(serial),
 		CommonName: common_name,
 	}
 
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
+		return
+	}
+
+	caid := cainfo.Id
 	cldata, err := repo.GetClientCerts(caid, db_req)
 
 	if err != nil {
@@ -1219,20 +1129,14 @@ func getClientCert(c *gin.Context) {
 }
 
 func updateClientCert(c *gin.Context) {
-	id_prm := c.Param("id")
-	serial_prm := c.Param("serial")
-
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
 		c.Abort()
 		return
 	}
 
-	cainfo, err := repo.GetCAInfo(id_prm)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, errInvalidURL)
-		c.Abort()
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
 		return
 	}
 
@@ -1256,6 +1160,7 @@ func updateClientCert(c *gin.Context) {
 		return
 	}
 
+	serial_prm := c.Param("serial")
 	serial, err := strconv.ParseUint(serial_prm, 10, 0)
 
 	if err != nil || serial > uint64(^uint32(0)) {
@@ -1288,13 +1193,8 @@ func updateClientCert(c *gin.Context) {
 		return
 	}
 
-	password := c.GetHeader(CA_PASSWORD)
-	err = cert.VerifyPassword(cainfo.Password, password)
-
-	if err != nil {
-		// パスワードの照合エラーについては、アクセス権限なしとする
-		c.JSON(http.StatusForbidden, errFailedAccess)
-		c.Abort()
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
 		return
 	}
 
@@ -1368,9 +1268,34 @@ func updateClientCert(c *gin.Context) {
 	})
 }
 
-/*
-<summary>: DBとの接続についての初期処理
-*/
+func getCAInfoData(c *gin.Context) (models.TranCAInfo, bool) {
+	id_prm := c.Param("id")
+	cainfo, err := repo.GetCAInfo(id_prm)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, errInvalidURL)
+		c.Abort()
+		return models.TranCAInfo{}, false
+	}
+
+	return cainfo, true
+}
+
+func checkPassword(c *gin.Context, hashedPass string) (string, bool) {
+	password := c.GetHeader(CA_PASSWORD)
+
+	if err := cert.VerifyPassword(hashedPass, password); err != nil {
+		// パスワードの照合エラーについては、アクセス権限なしとする
+		c.JSON(http.StatusForbidden, errFailedAccess)
+		c.Abort()
+		return "", false
+	}
+
+	return password, true
+}
+
+
+// DBとの接続についての初期処理を行います
 func initDB() *db.Repository {
 	driver, dsn, err := db.GetDataSourceName()
 	if err != nil {
@@ -1432,9 +1357,8 @@ func sanitize(input string) string {
 	return sb.String()
 }
 
-/*
-<summary>: SQLに登録されている文字列型の時間をtime.Time型へ変換します
-*/
+
+// SQLに登録されている文字列型の時間をtime.Time型へ変換します
 func getParsedTime(strTime string) time.Time {
 	loc, _ := time.LoadLocation("Asia/Tokyo")
 
@@ -1446,9 +1370,8 @@ func getParsedTime(strTime string) time.Time {
 	return t
 }
 
-/*
-<summary>: 現在時刻を示す文字列を取得します
-*/
+
+// 現在時刻を示す文字列を取得します
 func getNowString() string {
 	return time.Now().Format(cert.DT_FORMAT)
 }
