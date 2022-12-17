@@ -30,7 +30,14 @@ type CertData struct {
 	ExpirationDate string
 }
 
-type CreateCertRequest struct {
+type CreateCACertRequest struct {
+	CAID       string
+	PrivateKey PrivateKey
+	Subject    pkix.Name
+	Serial     uint32
+}
+
+type CreateServerCertRequest struct {
 	Subject        pkix.Name
 	Serial         uint32
 	DNSNames       []string
@@ -81,8 +88,7 @@ func ToCertData(
 	return cert, nil
 }
 
-func CreateCACert(
-	req *CreateCertRequest, caid string, priv PrivateKey) (*CertData, error) {
+func CreateCACert(req *CreateCACertRequest) (*CertData, error) {
 
 	created := time.Now()
 	expire := created.Add(CA_EXPIRE)
@@ -100,17 +106,18 @@ func CreateCACert(
 		BasicConstraintsValid: true,
 	}
 
-	pem_data, err := createCertificate(tpl, tpl, priv.Key.Public(), priv.Key)
+	priv := req.PrivateKey.Key
+	pem_data, err := createCertificate(tpl, tpl, priv.Public(), priv)
 
 	if err != nil {
 		return nil, err
 	}
 
 	data := CertData{
-		CAID:           caid,
+		CAID:           req.CAID,
 		Serial:         req.Serial,
 		CommonName:     req.Subject.CommonName,
-		PrivateKey:     priv,
+		PrivateKey:     req.PrivateKey,
 		Type:           CA,
 		PemData:        pem_data,
 		Created:        created.Format(DT_FORMAT),
@@ -120,7 +127,9 @@ func CreateCACert(
 	return &data, nil
 }
 
-func CreateServerCert(req *CreateCertRequest, ca *CertData) (*CertData, error) {
+func CreateServerCert(
+	req *CreateServerCertRequest, ca *CertData) (*CertData, error) {
+
 	created := time.Now()
 	expire := created.Add(SV_EXPIRE)
 
@@ -179,7 +188,9 @@ func CreateServerCert(req *CreateCertRequest, ca *CertData) (*CertData, error) {
 	return &data, nil
 }
 
-func CreateClientCert(req *CreateCertRequest, ca *CertData) (*CertData, error) {
+func CreateClientCert(
+	serial uint32, subject pkix.Name, ca *CertData) (*CertData, error) {
+
 	created := time.Now()
 	expire := created.Add(CL_EXPIRE)
 
@@ -192,8 +203,8 @@ func CreateClientCert(req *CreateCertRequest, ca *CertData) (*CertData, error) {
 	}
 
 	tpl := &x509.Certificate{
-		SerialNumber: big.NewInt(int64(req.Serial)),
-		Subject:      req.Subject,
+		SerialNumber: big.NewInt(int64(serial)),
+		Subject:      subject,
 		NotAfter:     expire,
 		NotBefore:    created,
 		KeyUsage:     usage,
@@ -221,8 +232,8 @@ func CreateClientCert(req *CreateCertRequest, ca *CertData) (*CertData, error) {
 
 	data := CertData{
 		CAID:           ca.CAID,
-		Serial:         req.Serial,
-		CommonName:     req.Subject.CommonName,
+		Serial:         serial,
+		CommonName:     subject.CommonName,
 		PrivateKey:     priv,
 		Type:           CLIENT,
 		PemData:        pem_data,

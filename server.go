@@ -418,12 +418,14 @@ func newCACert(c *gin.Context) {
 		serial = uint32(max) + 1
 	}
 
-	cert_req := &cert.CreateCertRequest{
-		Subject: toPkixName(req.Subject),
-		Serial:  serial,
+	cert_req := &cert.CreateCACertRequest{
+		CAID:       caid,
+		PrivateKey: cakey,
+		Subject:    toPkixName(req.Subject),
+		Serial:     serial,
 	}
 
-	cacert, err := cert.CreateCACert(cert_req, caid, cakey)
+	cacert, err := cert.CreateCACert(cert_req)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorMessage{
@@ -694,7 +696,7 @@ func newServerCert(c *gin.Context) {
 	}
 
 	serial := uint32(max) + 1
-	cert_req := cert.CreateCertRequest{
+	cert_req := cert.CreateServerCertRequest{
 		Subject: toPkixName(req.Subject),
 		Serial:  serial,
 	}
@@ -1074,12 +1076,8 @@ func newClientCert(c *gin.Context) {
 	}
 
 	serial := uint32(max) + 1
-	cert_req := &cert.CreateCertRequest{
-		Subject: toPkixName(req.Subject),
-		Serial:  serial,
-	}
-
-	clcert, err := cert.CreateClientCert(cert_req, ca)
+	subject := toPkixName(req.Subject)
+	clcert, err := cert.CreateClientCert(serial, subject, ca)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorMessage{

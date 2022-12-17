@@ -35,8 +35,8 @@ type NewCertResponse struct {
 }
 
 type CAInfoResponse struct {
-	CAID         string        `json:"ca_id"`
-	ValidCerts   []CertSummary `json:"valid_certs"`
+	CAID         string         `json:"ca_id"`
+	ValidCerts   []CertSummary  `json:"valid_certs"`
 	InvalidCerts []SlimCertData `json:"invalid_certs"`
 }
 
