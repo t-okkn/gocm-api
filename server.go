@@ -339,7 +339,7 @@ func updateCACert(c *gin.Context) {
 	}
 
 	caid := cainfo.Id
-	capcs, err := repo.CheckCACert(caid)
+	capcs, err := repo.CountCACert(caid)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errFailedGetData)
@@ -942,7 +942,7 @@ func newCertificate(c *gin.Context, certType cert.CertType) {
 
 	switch certType {
 	case cert.CA:
-		ca_count, err = repo.CheckCACert(caid)
+		ca_count, err = repo.CountCACert(caid)
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, errFailedGetData)

@@ -28,8 +28,8 @@ func (r *Repository) GetCAInfo(id string) (models.TranCAInfo, error) {
 	return result, nil
 }
 
-func (r *Repository) CheckCACert(id string) (int64, error) {
-	query := GetSQL("check-cacert", "")
+func (r *Repository) CountCACert(id string) (int64, error) {
+	query := GetSQL("count-ca-cert", "")
 	val := map[string]interface{}{"id": id}
 
 	return r.SelectInt(query, val)
