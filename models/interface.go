@@ -15,12 +15,12 @@ type NewCACertRequest struct {
 }
 
 type NewServerCertRequest struct {
-	Subject        Subject  `json:"subject" binding:"required"`
+	CommonName     string   `json:"common_name" binding:"required"`
 	SubjectAltName []string `json:"subject_alt_name" binding:"required"`
 }
 
 type NewClientCertRequest struct {
-	Subject Subject `json:"subject" binding:"required"`
+	CommonName string `json:"common_name" binding:"required"`
 }
 
 type NewCAResponse struct {

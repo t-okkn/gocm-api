@@ -38,7 +38,7 @@ type CreateCACertRequest struct {
 }
 
 type CreateServerCertRequest struct {
-	Subject        pkix.Name
+	CommonName     string
 	Serial         uint32
 	DNSNames       []string
 	IPAddresses    []net.IP
@@ -130,6 +130,12 @@ func CreateCACert(req *CreateCACertRequest) (*CertData, error) {
 func CreateServerCert(
 	req *CreateServerCertRequest, ca *CertData) (*CertData, error) {
 
+	cacert, err := ca.toX509CertificateData()
+
+	if err != nil {
+		return nil, err
+	}
+
 	created := time.Now()
 	expire := created.Add(SV_EXPIRE)
 
@@ -142,9 +148,12 @@ func CreateServerCert(
 		x509.ExtKeyUsageServerAuth,
 	}
 
+	subject := cacert.Subject
+	subject.CommonName = req.CommonName
+
 	tpl := &x509.Certificate{
 		SerialNumber:   big.NewInt(int64(req.Serial)),
-		Subject:        req.Subject,
+		Subject:        subject,
 		NotAfter:       expire,
 		NotBefore:      created,
 		KeyUsage:       usage,
@@ -153,12 +162,6 @@ func CreateServerCert(
 		IPAddresses:    req.IPAddresses,
 		URIs:           req.URIs,
 		EmailAddresses: req.EmailAddresses,
-	}
-
-	cacert, err := ca.toX509CertificateData()
-
-	if err != nil {
-		return nil, err
 	}
 
 	priv, err := ca.newPrivateKey()
@@ -177,7 +180,7 @@ func CreateServerCert(
 	data := CertData{
 		CAID:           ca.CAID,
 		Serial:         req.Serial,
-		CommonName:     req.Subject.CommonName,
+		CommonName:     req.CommonName,
 		PrivateKey:     priv,
 		Type:           SERVER,
 		PemData:        pem_data,
@@ -189,7 +192,13 @@ func CreateServerCert(
 }
 
 func CreateClientCert(
-	serial uint32, subject pkix.Name, ca *CertData) (*CertData, error) {
+	serial uint32, commonName string, ca *CertData) (*CertData, error) {
+
+	cacert, err := ca.toX509CertificateData()
+
+	if err != nil {
+		return nil, err
+	}
 
 	created := time.Now()
 	expire := created.Add(CL_EXPIRE)
@@ -202,6 +211,9 @@ func CreateClientCert(
 		x509.ExtKeyUsageClientAuth,
 	}
 
+	subject := cacert.Subject
+	subject.CommonName = commonName
+
 	tpl := &x509.Certificate{
 		SerialNumber: big.NewInt(int64(serial)),
 		Subject:      subject,
@@ -209,12 +221,6 @@ func CreateClientCert(
 		NotBefore:    created,
 		KeyUsage:     usage,
 		ExtKeyUsage:  ext_key_usage,
-	}
-
-	cacert, err := ca.toX509CertificateData()
-
-	if err != nil {
-		return nil, err
 	}
 
 	priv, err := ca.newPrivateKey()

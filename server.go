@@ -44,6 +44,9 @@ var (
 // CA証明書更新：有効な証明書が1枚だけ存在する状態で破棄＆新規作成
 // その他証明書新規：何もせず新規作成
 // その他証明書更新：特定の有効な証明書を破棄＆新規作成
+//
+// * CA証明書の鍵作成をserver側でなく内部へ持っていく
+// * UpdateとNewを一つの関数にまとめる
 */
 
 /*
@@ -641,8 +644,8 @@ func newServerCert(c *gin.Context) {
 
 	serial := uint32(max) + 1
 	cert_req := cert.CreateServerCertRequest{
-		Subject: toPkixName(req.Subject),
-		Serial:  serial,
+		CommonName: req.CommonName,
+		Serial:     serial,
 	}
 
 	cert_req.DNSNames = make([]string, 0, len(req.SubjectAltName))
@@ -996,8 +999,7 @@ func newClientCert(c *gin.Context) {
 	}
 
 	serial := uint32(max) + 1
-	subject := toPkixName(req.Subject)
-	clcert, err := cert.CreateClientCert(serial, subject, ca)
+	clcert, err := cert.CreateClientCert(serial, req.CommonName, ca)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorMessage{
@@ -1294,7 +1296,6 @@ func checkPassword(c *gin.Context, hashedPass string) (string, bool) {
 	return password, true
 }
 
-
 // DBとの接続についての初期処理を行います
 func initDB() *db.Repository {
 	driver, dsn, err := db.GetDataSourceName()
@@ -1357,7 +1358,6 @@ func sanitize(input string) string {
 	return sb.String()
 }
 
-
 // SQLに登録されている文字列型の時間をtime.Time型へ変換します
 func getParsedTime(strTime string) time.Time {
 	loc, _ := time.LoadLocation("Asia/Tokyo")
@@ -1369,7 +1369,6 @@ func getParsedTime(strTime string) time.Time {
 
 	return t
 }
-
 
 // 現在時刻を示す文字列を取得します
 func getNowString() string {
