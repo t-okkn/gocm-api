@@ -40,16 +40,16 @@ var (
 
 /*
 // memo:
-// CA証明書新規：何も証明書がない or 有効期限切れの証明書しかない状態で作成
-// CA証明書更新：有効な証明書が1枚だけ存在する状態で破棄＆新規作成
-// その他証明書新規：何もせず新規作成
-// その他証明書更新：特定の有効な証明書を破棄＆新規作成
+// CA証明書新規：何も証明書がない or 有効期限切れの証明書しかない状態で発行
+// CA証明書更新：有効な証明書が1枚だけ存在する状態で破棄＆新規発行
+// その他証明書新規：何もせず新規発行
+// その他証明書更新：特定の有効な証明書を破棄＆新規発行
 */
 
-/*
-待ち受けるサーバのルーターを定義します。
-httpHandlerを受け取る関数にそのまま渡せます。
-*/
+
+//待ち受けるサーバのルーターを定義します
+//
+//httpHandlerを受け取る関数にそのまま渡せます
 func SetupRouter() *gin.Engine {
 	router := gin.Default()
 	v1 := router.Group("v1")
@@ -79,6 +79,7 @@ func SetupRouter() *gin.Engine {
 	return router
 }
 
+// 新規CA認証局を作成します
 func newCA(c *gin.Context) {
 	obj, err := uuid.NewRandom()
 
@@ -138,6 +139,7 @@ func newCA(c *gin.Context) {
 	})
 }
 
+// CA認証局内の証明書発行状況・破棄状況を表示します
 func getCAInfo(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -189,6 +191,7 @@ func getCAInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// CA認証局とそれらに紐づく証明書を全て削除します
 func destroyCA(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -214,6 +217,9 @@ func destroyCA(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// CA認証局内の証明書について有効期限を監査します
+//
+// デフォルトは30日後に有効期限を迎える証明書を表示します
 func auditAllCerts(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -278,6 +284,7 @@ func auditAllCerts(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// CA証明書の情報をPEM形式で表示します
 func getCACert(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -320,6 +327,9 @@ func getCACert(c *gin.Context) {
 	//c.String(http.StatusOK, cadata[0].CertData)
 }
 
+// 発行されたサーバ証明書の情報を表示します
+//
+// ※特定の証明書の情報に限定されたときのみPEM形式の証明書データを出力します
 func getServerCert(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -386,6 +396,9 @@ func getServerCert(c *gin.Context) {
 	}
 }
 
+// 発行されたクライアント証明書の情報を表示します
+//
+// ※特定の証明書の情報に限定されたときのみPFX形式の証明書データを出力します
 func getClientCert(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -482,26 +495,32 @@ func getClientCert(c *gin.Context) {
 	}
 }
 
+// 新規CA証明書を発行します
 func newCACert(c *gin.Context) {
 	newCertificate(c, cert.CA)
 }
 
+// 新規サーバ証明書を発行します
 func newServerCert(c *gin.Context) {
 	newCertificate(c, cert.SERVER)
 }
 
+// 新規クライアント証明書を発行します
 func newClientCert(c *gin.Context) {
 	newCertificate(c, cert.CLIENT)
 }
 
+// 既存の有効なCA証明書を更新します
 func updateCACert(c *gin.Context) {
 	updateCertificate(c, cert.CA)
 }
 
+// 既存の有効なサーバ証明書を更新します
 func updateServerCert(c *gin.Context) {
 	updateCertificate(c, cert.SERVER)
 }
 
+// 既存の有効なクライアント証明書を更新します
 func updateClientCert(c *gin.Context) {
 	updateCertificate(c, cert.CLIENT)
 }
@@ -535,7 +554,7 @@ func checkPassword(c *gin.Context, hashedPass string) (string, bool) {
 	return password, true
 }
 
-// 各種証明書を新規作成します
+// 各種証明書を新規発行します
 func newCertificate(c *gin.Context, certType cert.CertType) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -754,7 +773,7 @@ func newCertificate(c *gin.Context, certType cert.CertType) {
 	}
 
 	// -----
-	// クライアントへ作成した証明書の情報を渡します
+	// クライアントへ発行した証明書の情報を渡します
 	// -----
 	c.JSON(http.StatusCreated, models.NewCertResponse{
 		CAID:       caid,
@@ -965,7 +984,7 @@ func updateCertificate(c *gin.Context, certType cert.CertType) {
 	}
 
 	// -----
-	// クライアントへ作成した証明書の情報を渡します
+	// クライアントへ発行した証明書の情報を渡します
 	// -----
 	c.JSON(http.StatusCreated, models.NewCertResponse{
 		CAID:       caid,
@@ -974,6 +993,7 @@ func updateCertificate(c *gin.Context, certType cert.CertType) {
 	})
 }
 
+// CA証明書発行のための情報を取得します
 func getCACertRequest(c *gin.Context, data models.NewCACertRequest) (
 	*cert.CreateCACertRequest, bool) {
 
@@ -1067,7 +1087,7 @@ func initDB() *db.Repository {
 	return db.NewRepository(dbmap)
 }
 
-// リクエストされたサーバ証明書作成用の構造体からデータを詰め替えます
+// サーバ証明書発行のための情報を取得します
 func getServerCertRequest(
 	data models.NewServerCertRequest) (*cert.CreateServerCertRequest, bool) {
 

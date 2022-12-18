@@ -14,6 +14,9 @@ import (
 	"unsafe"
 )
 
+// パスワードを生成します
+//
+// ※実態は共通暗号鍵です
 func GeneratePassword() (string, error) {
 	b := make([]byte, 32)
 
@@ -25,6 +28,7 @@ func GeneratePassword() (string, error) {
 	return fmt.Sprintf("pk.%s", b64str), nil
 }
 
+// パスワードをハッシュ化します
 func GetHashedPassword(password string) (string, error) {
 	if (len([]rune(password)) >= 73) {
 		e := "73文字以上のパスワードは指定できません"
@@ -42,6 +46,7 @@ func GetHashedPassword(password string) (string, error) {
 	}
 }
 
+// パスワードとハッシュ化されたパスワードを照合します
 func VerifyPassword(hashedPass, password string) error {
 	pp := (*[]byte)(unsafe.Pointer(&password))
 	hash, err := base64.StdEncoding.DecodeString(hashedPass)
@@ -53,6 +58,7 @@ func VerifyPassword(hashedPass, password string) error {
 	return bcrypt.CompareHashAndPassword(hash, *pp)
 }
 
+// 秘密鍵を暗号化します
 func encrypt(password, pemstr string) (string, error) {
 	key, err := passwordToKey(password)
 	if err != nil {
@@ -81,6 +87,7 @@ func encrypt(password, pemstr string) (string, error) {
 	return base64.StdEncoding.EncodeToString(cipherdata), nil
 }
 
+// 秘密鍵を復号します
 func decrypt(password, base64Text string) (string, error) {
 	key, err := passwordToKey(password)
 	if err != nil {
@@ -111,6 +118,7 @@ func decrypt(password, base64Text string) (string, error) {
 	return string(pemdata), nil
 }
 
+// 文字列としての秘密鍵をバイナリデータに変換します
 func passwordToKey(password string) ([]byte, error) {
 	if !strings.HasPrefix(password, "pk.") {
 		e := errors.New("不正なパスワードです")

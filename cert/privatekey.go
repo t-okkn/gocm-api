@@ -27,10 +27,9 @@ const (
 	ED25519           PrivateKeyAlgorithm = "ED25519"
 )
 
-/*
-<summary>: RSA PrivateKeyを生成します
-	<remark>: 2048bit, 4096bitにのみ対応しています
-*/
+// RSA PrivateKeyを生成します
+//
+// ※2048bit, 4096bitにのみ対応しています
 func GenerateRSAKey(bits int) (PrivateKey, error) {
 	if bits != 2048 && bits != 4096 {
 		e := fmt.Sprintf("指定したビット数（%dbit）には対応していません", bits)
@@ -51,10 +50,10 @@ func GenerateRSAKey(bits int) (PrivateKey, error) {
 	return k, nil
 }
 
-/*
-<summary>: ECDSA PrivateKeyを生成します
-	<remark>: P-256, P-384, P-521にのみ対応しています
-*/
+
+// ECDSA PrivateKeyを生成します
+//
+// ※P-256, P-384, P-521にのみ対応しています
 func GenerateECDSAKey(bits int) (PrivateKey, error) {
 	var curve elliptic.Curve
 
@@ -87,9 +86,7 @@ func GenerateECDSAKey(bits int) (PrivateKey, error) {
 	return k, nil
 }
 
-/*
-<summary>: ED25519 PrivateKeyを生成します
-*/
+//ED25519 PrivateKeyを生成します
 func GenerateED25519Key() (PrivateKey, error) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 
@@ -105,6 +102,7 @@ func GenerateED25519Key() (PrivateKey, error) {
 	return k, nil
 }
 
+// PEM形式のデータをPrivateKey構造体に変換します
 func toPrivateKey(key string) (PrivateKey, error) {
 	if len(key) == 0 {
 		return PrivateKey{}, errors.New("PEM形式の秘密鍵を入力してください")
@@ -156,6 +154,7 @@ func toPrivateKey(key string) (PrivateKey, error) {
 	}
 }
 
+// PrivateKey構造体からPEM形式のデータに変換します
 func (priv PrivateKey) toPem() (string, error) {
 	var (
 		priv_dsr []byte
@@ -212,6 +211,7 @@ func (priv PrivateKey) toPem() (string, error) {
 	}
 }
 
+// PrivateKeyの鍵サイズを取得します
 func (priv PrivateKey) getKeySize() int {
 	switch priv.Algorithm {
 	case RSA:

@@ -27,6 +27,7 @@ type TranCertificate struct {
 	Revoked        string `db:"revoked" json:"revoked"`
 }
 
+// 証明書データ・秘密鍵データがない軽量版データのレスポンス
 type SlimCertData struct {
 	CAID           string `db:"ca_id, primarykey" json:"ca_id"`
 	Serial         uint32 `db:"serial, primarykey" json:"serial"`

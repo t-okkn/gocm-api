@@ -59,35 +59,7 @@ const (
 	CLIENT            CertType = "CLIENT"
 )
 
-func ToCertData(
-	password string, tcert models.TranCertificate) (*CertData, error) {
-
-	pempk, err := decrypt(password, tcert.PrivateKey)
-
-	if err != nil {
-		return nil, err
-	}
-
-	priv, err := toPrivateKey(pempk)
-
-	if err != nil {
-		return nil, err
-	}
-
-	cert := &CertData{
-		CAID:           tcert.CAID,
-		Serial:         tcert.Serial,
-		CommonName:     tcert.CommonName,
-		PrivateKey:     priv,
-		Type:           CertType(tcert.CertType),
-		PemData:        tcert.CertData,
-		Created:        tcert.Created,
-		ExpirationDate: tcert.ExpirationDate,
-	}
-
-	return cert, nil
-}
-
+// CA証明書を発行します
 func CreateCACert(req *CreateCACertRequest) (*CertData, error) {
 
 	created := time.Now()
@@ -127,6 +99,7 @@ func CreateCACert(req *CreateCACertRequest) (*CertData, error) {
 	return &data, nil
 }
 
+// サーバ証明書を発行します
 func CreateServerCert(
 	req *CreateServerCertRequest, ca *CertData) (*CertData, error) {
 
@@ -191,6 +164,7 @@ func CreateServerCert(
 	return &data, nil
 }
 
+// クライアント証明書を発行します
 func CreateClientCert(
 	serial uint32, commonName string, ca *CertData) (*CertData, error) {
 
@@ -250,6 +224,37 @@ func CreateClientCert(
 	return &data, nil
 }
 
+// DB上の証明書情報をプログラム内部で扱う証明書情報に変換します
+func ToCertData(
+	password string, tcert models.TranCertificate) (*CertData, error) {
+
+	pempk, err := decrypt(password, tcert.PrivateKey)
+
+	if err != nil {
+		return nil, err
+	}
+
+	priv, err := toPrivateKey(pempk)
+
+	if err != nil {
+		return nil, err
+	}
+
+	cert := &CertData{
+		CAID:           tcert.CAID,
+		Serial:         tcert.Serial,
+		CommonName:     tcert.CommonName,
+		PrivateKey:     priv,
+		Type:           CertType(tcert.CertType),
+		PemData:        tcert.CertData,
+		Created:        tcert.Created,
+		ExpirationDate: tcert.ExpirationDate,
+	}
+
+	return cert, nil
+}
+
+// 証明書を更新します
 func (c *CertData) UpdateCert(serial uint32, ca *CertData) (*CertData, error) {
 	old_cert, err := c.toX509CertificateData()
 
@@ -315,6 +320,7 @@ func (c *CertData) UpdateCert(serial uint32, ca *CertData) (*CertData, error) {
 	return &data, nil
 }
 
+// クライアント証明書と秘密鍵をPFX形式のデータにします
 func (c *CertData) ToPkcs12(pin string) ([]byte, error) {
 	if c.Type != CLIENT {
 		e := errors.New("クライアント証明書のデータを入力してください")
@@ -330,6 +336,7 @@ func (c *CertData) ToPkcs12(pin string) ([]byte, error) {
 	return pkcs12.Encode(rand.Reader, c.PrivateKey.Key, cert, nil, pin)
 }
 
+// プログラム内部で扱う証明書情報をDB上の証明書情報に変換します
 func (c *CertData) TranCertificate(
 	password string) (models.TranCertificate, error) {
 
@@ -361,6 +368,7 @@ func (c *CertData) TranCertificate(
 	return tc, nil
 }
 
+// x509.CreateCertificate関数をラッピングし、PEM形式の証明書データを出力します
 func createCertificate(template *x509.Certificate, parent *x509.Certificate,
 	pub crypto.PublicKey, priv crypto.Signer) (string, error) {
 
@@ -387,6 +395,7 @@ func createCertificate(template *x509.Certificate, parent *x509.Certificate,
 	}
 }
 
+// 既存の証明書情報から新規秘密鍵を生成します
 func (c *CertData) newPrivateKey() (PrivateKey, error) {
 	var priv PrivateKey
 	var err error
@@ -424,6 +433,7 @@ func (c *CertData) newPrivateKey() (PrivateKey, error) {
 	}
 }
 
+// PEM形式の証明書データからx509.Certificate構造体へ変換します
 func (c *CertData) toX509CertificateData() (*x509.Certificate, error) {
 	if len(c.PemData) == 0 {
 		return nil, errors.New("PEM形式の証明書データがありません")

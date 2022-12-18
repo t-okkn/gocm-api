@@ -12,7 +12,7 @@ var (
 	Revision string
 )
 
-// <summary>: main関数（サーバを開始します）
+// main関数（サーバを開始します）
 func main() {
 	flag.Parse()
 

@@ -12,10 +12,12 @@ type Repository struct {
 	*gorp.DbMap
 }
 
+// DBとの接続情報を作成します
 func NewRepository(dm *gorp.DbMap) *Repository {
 	return &Repository{dm}
 }
 
+// CA認証局の情報を取得します
 func (r *Repository) GetCAInfo(id string) (models.TranCAInfo, error) {
 	var result models.TranCAInfo
 	query := GetSQL("get-cainfo", "")
@@ -28,6 +30,7 @@ func (r *Repository) GetCAInfo(id string) (models.TranCAInfo, error) {
 	return result, nil
 }
 
+// 過去に発行された全てのCA証明書の枚数を取得します
 func (r *Repository) CountCACert(id string) (int64, error) {
 	query := GetSQL("count-ca-cert", "")
 	val := map[string]interface{}{"id": id}
@@ -35,6 +38,7 @@ func (r *Repository) CountCACert(id string) (int64, error) {
 	return r.SelectInt(query, val)
 }
 
+// 有効なCA証明書を取得します
 func (r *Repository) GetCACerts(id string) ([]models.TranCertificate, error) {
 	var result []models.TranCertificate
 	query := GetSQL("get-ca-cert", "")
@@ -47,6 +51,7 @@ func (r *Repository) GetCACerts(id string) ([]models.TranCertificate, error) {
 	return result, nil
 }
 
+// 有効なサーバ証明書を取得します
 func (r *Repository) GetServerCerts(
 	id string, req models.DBRequest) ([]models.TranCertificate, error) {
 
@@ -65,6 +70,7 @@ func (r *Repository) GetServerCerts(
 	return result, nil
 }
 
+// 有効なクライアント証明書を取得します
 func (r *Repository) GetClientCerts(
 	id string, req models.DBRequest) ([]models.TranCertificate, error) {
 
@@ -83,6 +89,7 @@ func (r *Repository) GetClientCerts(
 	return result, nil
 }
 
+// CA認証局の証明書を全て取得します
 func (r *Repository) GetCASummary(id string) ([]models.SlimCertData, error) {
 	var result []models.SlimCertData
 	query := GetSQL("get-ca-summary", "")
@@ -95,6 +102,7 @@ func (r *Repository) GetCASummary(id string) ([]models.SlimCertData, error) {
 	return result, nil
 }
 
+// 認証局内のシリアル番号の最大値を取得します
 func (r *Repository) GetMaxSerialNumber(id string) (int64, error) {
 	query := GetSQL("get-max-serial", "")
 	val := map[string]interface{}{"id": id}
@@ -102,6 +110,7 @@ func (r *Repository) GetMaxSerialNumber(id string) (int64, error) {
 	return r.SelectInt(query, val)
 }
 
+// 証明書の監査用データを取得します
 func (r *Repository) AuditCertData(id string) ([]models.SlimCertData, error) {
 	var result []models.SlimCertData
 	query := GetSQL("audit-cert-data", "")
@@ -114,7 +123,7 @@ func (r *Repository) AuditCertData(id string) ([]models.SlimCertData, error) {
 	return result, nil
 }
 
-
+// CA認証局情報をDBへ追加します
 func (r *Repository) InsertCAInfo(cainfo models.TranCAInfo) error {
 	tx, err := r.Begin()
 
@@ -135,6 +144,7 @@ func (r *Repository) InsertCAInfo(cainfo models.TranCAInfo) error {
 	return nil
 }
 
+// 証明書情報をDBへ追加します
 func (r *Repository) InsertCert(tcert models.TranCertificate) error {
 	tx, err := r.Begin()
 
@@ -155,6 +165,7 @@ func (r *Repository) InsertCert(tcert models.TranCertificate) error {
 	return nil
 }
 
+// DBの証明書情報を更新します
 func (r *Repository) UpdateCert(old, new models.TranCertificate) error {
 	tx, err := r.Begin()
 
@@ -180,6 +191,7 @@ func (r *Repository) UpdateCert(old, new models.TranCertificate) error {
 	return nil
 }
 
+// CA認証局を削除する一連の操作をDB上で行います
 func (r *Repository) DestroyCA(id string, tca models.TranCAInfo) error {
 	var result []models.TranCertificate
 	query := GetSQL("destroy-ca", "")

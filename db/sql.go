@@ -37,7 +37,7 @@ type tlsInfo struct {
 	Key       string `toml:"key"`
 }
 
-
+// configファイルからデータソース名を取得します
 func GetDataSourceName() (string, string, error) {
 	dir := getDirName()
 	if dir == "" {
@@ -75,6 +75,7 @@ func GetDataSourceName() (string, string, error) {
 	return conf.Type, dsn, nil
 }
 
+// SQLクエリ文を対象ファイルから取得します
 func GetSQL(name string, req interface{}) string {
 	dir := getDirName()
 	if dir == "" {
@@ -90,6 +91,7 @@ func GetSQL(name string, req interface{}) string {
 	return buf.String()
 }
 
+// SQLファイルがあるディレクトリ名を取得します
 func getDirName() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -99,6 +101,7 @@ func getDirName() string {
 	return filepath.Base(exe) + ".sql"
 }
 
+// MySQLの接続情報にTLS情報を付与します
 func registerMysqlTLSConfig(tlsi tlsInfo) error {
 	rootCertPool := x509.NewCertPool()
 
