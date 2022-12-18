@@ -44,8 +44,6 @@ var (
 // CA証明書更新：有効な証明書が1枚だけ存在する状態で破棄＆新規作成
 // その他証明書新規：何もせず新規作成
 // その他証明書更新：特定の有効な証明書を破棄＆新規作成
-//
-// * Updateを一つの関数にまとめる
 */
 
 /*
@@ -280,10 +278,6 @@ func auditAllCerts(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-func newCACert(c *gin.Context) {
-	newCertificate(c, cert.CA)
-}
-
 func getCACert(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -324,115 +318,6 @@ func getCACert(c *gin.Context) {
 	// https://github.com/gin-gonic/gin/issues/468
 	//c.Header("Content-Type", "application/x-pem-file")
 	//c.String(http.StatusOK, cadata[0].CertData)
-}
-
-func updateCACert(c *gin.Context) {
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	caid := cainfo.Id
-	capcs, err := repo.CountCACert(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	cadata, err := repo.GetCACerts(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if capcs == 0 || (capcs != 1 && len(cadata) == 0) {
-		c.JSON(http.StatusNotFound, errNotFoundValidCACert)
-		c.Abort()
-		return
-	}
-
-	if len(cadata) > 1 {
-		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-		c.Abort()
-		return
-	}
-
-	password, ok := checkPassword(c, cainfo.Password)
-	if !ok {
-		return
-	}
-
-	cacert, err := cert.ToCertData(password, cadata[0])
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	max, err := repo.GetMaxSerialNumber(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	serial := uint32(max) + 1
-	new_cacert, err := cacert.UpdateCert(serial, nil)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	new_data, err := new_cacert.TranCertificate(password)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	old_data := cadata[0]
-	old_data.IsRevoked = 1
-	old_data.Revoked = getNowString()
-
-	if err := repo.UpdateCert(old_data, new_data); err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedOperateData)
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusCreated, models.NewCertResponse{
-		CAID:       caid,
-		Serial:     serial,
-		CommonName: new_data.CommonName,
-	})
-}
-
-func newServerCert(c *gin.Context) {
-	newCertificate(c, cert.SERVER)
 }
 
 func getServerCert(c *gin.Context) {
@@ -499,150 +384,6 @@ func getServerCert(c *gin.Context) {
 
 		c.JSON(http.StatusOK, res)
 	}
-}
-
-func updateServerCert(c *gin.Context) {
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	caid := cainfo.Id
-	cadata, err := repo.GetCACerts(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(cadata) == 0 {
-		c.JSON(http.StatusNotFound, errNotFoundValidCACert)
-		c.Abort()
-		return
-
-	} else if len(cadata) > 1 {
-		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-		c.Abort()
-		return
-	}
-
-	serial_prm := c.Param("serial")
-	serial, err := strconv.ParseUint(serial_prm, 10, 0)
-
-	if err != nil || serial > uint64(^uint32(0)) {
-		c.JSON(http.StatusBadRequest, errInvalidSerial)
-		c.Abort()
-		return
-	}
-
-	db_req := models.DBRequest{
-		Serial:     uint32(serial),
-		CommonName: "",
-	}
-
-	svdata, err := repo.GetServerCerts(caid, db_req)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(svdata) == 0 {
-		c.JSON(http.StatusNotFound, errNotFoundValidServerCert)
-		c.Abort()
-		return
-
-	} else if len(svdata) > 1 {
-		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-		c.Abort()
-		return
-	}
-
-	password, ok := checkPassword(c, cainfo.Password)
-	if !ok {
-		return
-	}
-
-	cacert, err := cert.ToCertData(password, cadata[0])
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	svcert, err := cert.ToCertData(password, svdata[0])
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	max, err := repo.GetMaxSerialNumber(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	new_serial := uint32(max) + 1
-	new_svcert, err := svcert.UpdateCert(new_serial, cacert)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	new_data, err := new_svcert.TranCertificate(password)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	old_data := svdata[0]
-	old_data.IsRevoked = 1
-	old_data.Revoked = getNowString()
-
-	if err := repo.UpdateCert(old_data, new_data); err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedOperateData)
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusCreated, models.NewCertResponse{
-		CAID:       caid,
-		Serial:     new_serial,
-		CommonName: new_data.CommonName,
-	})
-}
-
-func newClientCert(c *gin.Context) {
-	newCertificate(c, cert.CLIENT)
 }
 
 func getClientCert(c *gin.Context) {
@@ -741,144 +482,28 @@ func getClientCert(c *gin.Context) {
 	}
 }
 
+func newCACert(c *gin.Context) {
+	newCertificate(c, cert.CA)
+}
+
+func newServerCert(c *gin.Context) {
+	newCertificate(c, cert.SERVER)
+}
+
+func newClientCert(c *gin.Context) {
+	newCertificate(c, cert.CLIENT)
+}
+
+func updateCACert(c *gin.Context) {
+	updateCertificate(c, cert.CA)
+}
+
+func updateServerCert(c *gin.Context) {
+	updateCertificate(c, cert.SERVER)
+}
+
 func updateClientCert(c *gin.Context) {
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	caid := cainfo.Id
-	cadata, err := repo.GetCACerts(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(cadata) == 0 {
-		c.JSON(http.StatusNotFound, errNotFoundValidCACert)
-		c.Abort()
-		return
-
-	} else if len(cadata) > 1 {
-		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-		c.Abort()
-		return
-	}
-
-	serial_prm := c.Param("serial")
-	serial, err := strconv.ParseUint(serial_prm, 10, 0)
-
-	if err != nil || serial > uint64(^uint32(0)) {
-		c.JSON(http.StatusBadRequest, errInvalidSerial)
-		c.Abort()
-		return
-	}
-
-	db_req := models.DBRequest{
-		Serial:     uint32(serial),
-		CommonName: "",
-	}
-
-	cldata, err := repo.GetClientCerts(caid, db_req)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(cldata) == 0 {
-		c.JSON(http.StatusNotFound, errNotFoundValidClientCert)
-		c.Abort()
-		return
-
-	} else if len(cldata) > 1 {
-		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
-		c.Abort()
-		return
-	}
-
-	password, ok := checkPassword(c, cainfo.Password)
-	if !ok {
-		return
-	}
-
-	cacert, err := cert.ToCertData(password, cadata[0])
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	clcert, err := cert.ToCertData(password, cldata[0])
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	max, err := repo.GetMaxSerialNumber(caid)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	new_serial := uint32(max) + 1
-	new_clcert, err := clcert.UpdateCert(new_serial, cacert)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	new_data, err := new_clcert.TranCertificate(password)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorMessage{
-			Code:    "E501",
-			Message: err.Error(),
-		})
-		c.Abort()
-		return
-	}
-
-	old_data := cldata[0]
-	old_data.IsRevoked = 1
-	old_data.Revoked = getNowString()
-
-	if err := repo.UpdateCert(old_data, new_data); err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedOperateData)
-		c.Abort()
-		return
-	}
-
-	c.JSON(http.StatusCreated, models.NewCertResponse{
-		CAID:       caid,
-		Serial:     new_serial,
-		CommonName: new_data.CommonName,
-	})
+	updateCertificate(c, cert.CLIENT)
 }
 
 // 認証局の情報を取得します
@@ -987,7 +612,7 @@ func newCertificate(c *gin.Context, certType cert.CertType) {
 	// -----
 	// CA証明書とシリアル番号の取得を行います
 	// -----
-	var serial uint32 = 0
+	var serial uint32 = 1
 	var ca *cert.CertData
 
 	// シリアル番号を更新するかどうかを決める変数
@@ -996,7 +621,6 @@ func newCertificate(c *gin.Context, certType cert.CertType) {
 	switch certType {
 	case cert.CA:
 		if ca_count == 0 {
-			serial = 1
 			is_updatable = false
 		}
 
@@ -1136,6 +760,217 @@ func newCertificate(c *gin.Context, certType cert.CertType) {
 		CAID:       caid,
 		Serial:     serial,
 		CommonName: db_newcert.CommonName,
+	})
+}
+
+// 有効な各種証明書を更新します
+func updateCertificate(c *gin.Context, certType cert.CertType) {
+	if repo == nil {
+		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
+		c.Abort()
+		return
+	}
+
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
+		return
+	}
+
+	// -----
+	// 有効なCA証明書の取得を試みます
+	// -----
+	caid := cainfo.Id
+	cadata, err := repo.GetCACerts(caid)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errFailedGetData)
+		c.Abort()
+		return
+	}
+
+	// -----
+	// CA証明書の状態に関しての確認を行います
+	// -----
+	switch certType {
+	case cert.CA:
+		ca_count, err := repo.CountCACert(caid)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errFailedGetData)
+			c.Abort()
+			return
+		}
+
+		if ca_count == 0 || (ca_count != 1 && len(cadata) == 0) {
+			c.JSON(http.StatusNotFound, errNotFoundValidCACert)
+			c.Abort()
+			return
+		}
+
+	case cert.SERVER, cert.CLIENT:
+		if len(cadata) == 0 {
+			c.JSON(http.StatusNotFound, errNotFoundValidCACert)
+			c.Abort()
+			return
+		}
+	}
+
+	if len(cadata) > 1 {
+		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
+		c.Abort()
+		return
+	}
+
+	// -----
+	// DBから更新すべき証明書のデータを取得します
+	// -----
+	var old_data models.TranCertificate
+
+	switch certType {
+	case cert.CA:
+		old_data = cadata[0]
+
+	case cert.SERVER, cert.CLIENT:
+		serial_prm := c.Param("serial")
+		old_serial, err := strconv.ParseUint(serial_prm, 10, 0)
+
+		if err != nil || old_serial > uint64(^uint32(0)) {
+			c.JSON(http.StatusBadRequest, errInvalidSerial)
+			c.Abort()
+			return
+		}
+
+		db_req := models.DBRequest{
+			Serial:     uint32(old_serial),
+			CommonName: "",
+		}
+
+		var data []models.TranCertificate
+		var err_msg ErrorMessage
+
+		if certType == cert.SERVER {
+			data, err = repo.GetServerCerts(caid, db_req)
+			err_msg = errNotFoundValidServerCert
+
+		} else if certType == cert.CLIENT {
+			data, err = repo.GetClientCerts(caid, db_req)
+			err_msg = errNotFoundValidClientCert
+		}
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errFailedGetData)
+			c.Abort()
+			return
+		}
+
+		if len(data) == 0 {
+			c.JSON(http.StatusNotFound, err_msg)
+			c.Abort()
+			return
+
+		} else if len(data) > 1 {
+			c.JSON(http.StatusInternalServerError, errInvalidCertStore)
+			c.Abort()
+			return
+		}
+
+		old_data = data[0]
+	}
+
+	// パスワード確認
+	password, ok := checkPassword(c, cainfo.Password)
+	if !ok {
+		return
+	}
+
+	// CA証明書の秘密鍵等の読み込み
+	cacert, err := cert.ToCertData(password, cadata[0])
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorMessage{
+			Code:    "E501",
+			Message: err.Error(),
+		})
+		c.Abort()
+		return
+	}
+
+	// シリアル番号の取得
+	max, err := repo.GetMaxSerialNumber(caid)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errFailedGetData)
+		c.Abort()
+		return
+	}
+
+	new_serial := uint32(max) + 1
+
+	// -----
+	// 更新後の証明書を発行します
+	// -----
+	var new_cert *cert.CertData
+
+	switch certType {
+	case cert.CA:
+		new_cert, err = cacert.UpdateCert(new_serial, nil)
+
+	case cert.SERVER, cert.CLIENT:
+		var old_cert *cert.CertData
+		old_cert, err = cert.ToCertData(password, old_data)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorMessage{
+				Code:    "E501",
+				Message: err.Error(),
+			})
+			c.Abort()
+			return
+		}
+
+		new_cert, err = old_cert.UpdateCert(new_serial, cacert)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorMessage{
+			Code:    "E501",
+			Message: err.Error(),
+		})
+		c.Abort()
+		return
+	}
+
+	// -----
+	// DBへ証明書データを格納します
+	// -----
+	new_data, err := new_cert.TranCertificate(password)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorMessage{
+			Code:    "E501",
+			Message: err.Error(),
+		})
+		c.Abort()
+		return
+	}
+
+	// 更新前のデータは破棄扱い
+	old_data.IsRevoked = 1
+	old_data.Revoked = getNowString()
+
+	if err := repo.UpdateCert(old_data, new_data); err != nil {
+		c.JSON(http.StatusInternalServerError, errFailedOperateData)
+		c.Abort()
+		return
+	}
+
+	// -----
+	// クライアントへ作成した証明書の情報を渡します
+	// -----
+	c.JSON(http.StatusCreated, models.NewCertResponse{
+		CAID:       caid,
+		Serial:     new_serial,
+		CommonName: new_data.CommonName,
 	})
 }
 
