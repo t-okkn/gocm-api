@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	CA_PASSWORD string = "GOCM-CA-PASSWORD"
+	CA_PASSWORD   string = "GOCM-CA-PASSWORD"
+	DEFAULT_AUDIT int    = 30
 )
 
 var (
@@ -46,10 +47,9 @@ var (
 // その他証明書更新：特定の有効な証明書を破棄＆新規発行
 */
 
-
-//待ち受けるサーバのルーターを定義します
+// 待ち受けるサーバのルーターを定義します
 //
-//httpHandlerを受け取る関数にそのまま渡せます
+// httpHandlerを受け取る関数にそのまま渡せます
 func SetupRouter() *gin.Engine {
 	router := gin.Default()
 	v1 := router.Group("v1")
@@ -241,12 +241,13 @@ func auditAllCerts(c *gin.Context) {
 		return
 	}
 
-	days_qry := c.DefaultQuery("days", "30")
+	days_str := fmt.Sprintf("%d", DEFAULT_AUDIT)
+	days_qry := c.DefaultQuery("days", days_str)
 	days, err := strconv.Atoi(days_qry)
 
 	// 不正な文字列、1未満365より大きい数は強制的に30日
 	if err != nil || (days < 1 || days > 365) {
-		days = 30
+		days = DEFAULT_AUDIT
 	}
 
 	expected := time.Now().AddDate(0, 0, days)
@@ -603,7 +604,7 @@ func newCertificate(c *gin.Context, certType cert.CertType) {
 			c.JSON(http.StatusConflict, errExistsValidCACert)
 			c.Abort()
 			return
-	
+
 		} else if len(cadata) > 1 {
 			c.JSON(http.StatusInternalServerError, errInvalidCertStore)
 			c.Abort()
@@ -615,7 +616,7 @@ func newCertificate(c *gin.Context, certType cert.CertType) {
 			c.JSON(http.StatusNotFound, errNotFoundValidCACert)
 			c.Abort()
 			return
-	
+
 		} else if len(cadata) > 1 {
 			c.JSON(http.StatusInternalServerError, errInvalidCertStore)
 			c.Abort()
