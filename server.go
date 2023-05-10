@@ -285,7 +285,7 @@ func auditAllCerts(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// CA証明書の情報をPEM形式で表示します
+// CA証明書の情報をCER形式で表示します
 func getCACert(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -318,19 +318,19 @@ func getCACert(c *gin.Context) {
 		return
 	}
 
-	content_type := "application/x-pem-file; charset=utf-8"
+	content_type := "application/pkix-cert; charset=utf-8"
 	byte_data := []byte(cadata[0].CertData)
 	c.Data(http.StatusOK, content_type, byte_data)
 
 	// こちらでも問題はない
 	// https://github.com/gin-gonic/gin/issues/468
-	//c.Header("Content-Type", "application/x-pem-file")
+	//c.Header("Content-Type", "application/pkix-cert")
 	//c.String(http.StatusOK, cadata[0].CertData)
 }
 
 // 発行されたサーバ証明書の情報を表示します
 //
-// ※特定の証明書の情報に限定されたときのみPEM形式の証明書データを出力します
+// ※特定の証明書の情報に限定されたときのみCER形式の証明書データを出力します
 func getServerCert(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -371,7 +371,7 @@ func getServerCert(c *gin.Context) {
 		c.Header("GOCM-REQUEST-SERIAL", fmt.Sprintf("%d", serial))
 		c.Header("GOCM-REQUEST-CN", common_name)
 
-		content_type := "application/x-pem-file; charset=utf-8"
+		content_type := "application/pkix-cert; charset=utf-8"
 		byte_data := []byte(svdata[0].CertData)
 		c.Data(http.StatusOK, content_type, byte_data)
 
