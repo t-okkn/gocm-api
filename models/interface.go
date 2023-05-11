@@ -50,7 +50,7 @@ type CAInfoResponse struct {
 // 証明書情報に関するレスポンス
 type CertsResponse struct {
 	CAID       string        `json:"ca_id"`
-	Serial     uint32        `json:"serial"`
+	Count      int           `json:"count"`
 	CommonName string        `json:"common_name"`
 	Certs      []CertSummary `json:"certs"`
 }

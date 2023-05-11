@@ -485,21 +485,20 @@ func listCertData(c *gin.Context, certType cert.CertType) {
 		return
 	}
 
-	// TODO: これいらない
 	res := models.CertsResponse{
 		CAID:       caid,
-		Serial:     0,
+		Count:      len(data),
 		CommonName: common_name,
 	}
 	res.Certs = make([]models.CertSummary, len(data))
 
-	for i, data := range data {
+	for i, item := range data {
 		res.Certs[i] = models.CertSummary{
-			Serial:         data.Serial,
-			CommonName:     data.CommonName,
-			CertType:       data.CertType,
-			Created:        data.Created,
-			ExpirationDate: data.ExpirationDate,
+			Serial:         item.Serial,
+			CommonName:     item.CommonName,
+			CertType:       item.CertType,
+			Created:        item.Created,
+			ExpirationDate: item.ExpirationDate,
 		}
 	}
 
