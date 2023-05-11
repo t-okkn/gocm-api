@@ -102,60 +102,8 @@ func GenerateED25519Key() (PrivateKey, error) {
 	return k, nil
 }
 
-// PEM形式のデータをPrivateKey構造体に変換します
-func toPrivateKey(key string) (PrivateKey, error) {
-	if len(key) == 0 {
-		return PrivateKey{}, errors.New("PEM形式の秘密鍵を入力してください")
-	}
-
-	block, _ := pem.Decode([]byte(key))
-
-	if block == nil {
-		return PrivateKey{}, errors.New("DER形式のデータ変換に失敗しました")
-	}
-
-	var priv interface{}
-	var err error
-	var algo PrivateKeyAlgorithm = UNKNOWN_ALGORITHM
-
-	switch block.Type {
-	case "RSA PRIVATE KEY":
-		priv, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-		algo = RSA
-
-	case "EC PRIVATE KEY":
-		priv, err = x509.ParseECPrivateKey(block.Bytes)
-		algo = ECDSA
-
-	case "PRIVATE KEY":
-		priv, err = x509.ParsePKCS8PrivateKey(block.Bytes)
-		algo = ED25519
-
-	default:
-		e := errors.New("入力されたPEM形式のデータは秘密鍵ではありません")
-		return PrivateKey{}, e
-	}
-
-	if err != nil {
-		return PrivateKey{}, err
-	}
-
-	if value, ok := priv.(crypto.Signer); ok {
-		k := PrivateKey{
-			Algorithm: algo,
-			Key:       value,
-		}
-
-		return k, nil
-
-	} else {
-		e := errors.New("入力されたPEM形式のデータは無効な秘密鍵です")
-		return PrivateKey{}, e
-	}
-}
-
 // PrivateKey構造体からPEM形式のデータに変換します
-func (priv PrivateKey) toPem() (string, error) {
+func (priv PrivateKey) ToPem() (string, error) {
 	var (
 		priv_dsr []byte
 		err      error
@@ -208,6 +156,58 @@ func (priv PrivateKey) toPem() (string, error) {
 	} else {
 		e := errors.New("PEM形式のデータ変換に失敗しました")
 		return "", e
+	}
+}
+
+// PEM形式のデータをPrivateKey構造体に変換します
+func toPrivateKey(key string) (PrivateKey, error) {
+	if len(key) == 0 {
+		return PrivateKey{}, errors.New("PEM形式の秘密鍵を入力してください")
+	}
+
+	block, _ := pem.Decode([]byte(key))
+
+	if block == nil {
+		return PrivateKey{}, errors.New("DER形式のデータ変換に失敗しました")
+	}
+
+	var priv interface{}
+	var err error
+	var algo PrivateKeyAlgorithm = UNKNOWN_ALGORITHM
+
+	switch block.Type {
+	case "RSA PRIVATE KEY":
+		priv, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+		algo = RSA
+
+	case "EC PRIVATE KEY":
+		priv, err = x509.ParseECPrivateKey(block.Bytes)
+		algo = ECDSA
+
+	case "PRIVATE KEY":
+		priv, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+		algo = ED25519
+
+	default:
+		e := errors.New("入力されたPEM形式のデータは秘密鍵ではありません")
+		return PrivateKey{}, e
+	}
+
+	if err != nil {
+		return PrivateKey{}, err
+	}
+
+	if value, ok := priv.(crypto.Signer); ok {
+		k := PrivateKey{
+			Algorithm: algo,
+			Key:       value,
+		}
+
+		return k, nil
+
+	} else {
+		e := errors.New("入力されたPEM形式のデータは無効な秘密鍵です")
+		return PrivateKey{}, e
 	}
 }
 

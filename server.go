@@ -64,14 +64,19 @@ func SetupRouter() *gin.Engine {
 
 	certs.POST("/ca/:id", newCACert)
 	certs.GET("/ca/:id", getCACert)
+	certs.GET("/ca/:id/secretkey", getCACert)
 	certs.PUT("/ca/:id", updateCACert)
 
 	certs.POST("/server/:id", newServerCert)
-	certs.GET("/server/:id", getServerCert)
+	certs.GET("/server/:id", listServerCerts)
+	certs.GET("/server/:id/:serial", getServerCert)
+	certs.GET("/server/:id/:serial/secretkey", getServerCert)
 	certs.PUT("/server/:id/:serial", updateServerCert)
 
 	certs.POST("/client/:id", newClientCert)
-	certs.GET("/client/:id", getClientCert)
+	certs.GET("/client/:id", listClientCerts)
+	certs.GET("/client/:id/:serial", getClientCert)
+	certs.GET("/client/:id/:serial/secretkey", getClientCert)
 	certs.PUT("/client/:id/:serial", updateClientCert)
 
 	repo = initDB()
@@ -285,7 +290,7 @@ func auditAllCerts(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// CA証明書の情報をCER形式で表示します
+// CA証明書の情報をCER形式で取得します
 func getCACert(c *gin.Context) {
 	if repo == nil {
 		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
@@ -318,9 +323,42 @@ func getCACert(c *gin.Context) {
 		return
 	}
 
-	content_type := "application/pkix-cert; charset=utf-8"
-	byte_data := []byte(cadata[0].CertData)
-	c.Data(http.StatusOK, content_type, byte_data)
+	if strings.Contains(c.FullPath(), "secretkey") {
+		password, ok := checkPassword(c, cainfo.Password)
+		if !ok {
+			return
+		}
+
+		cert_data, err := cert.ToCertData(password, cadata[0])
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorMessage{
+				Code:    "E501",
+				Message: err.Error(),
+			})
+			c.Abort()
+			return
+		}
+
+		pem, err := cert_data.PrivateKey.ToPem()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorMessage{
+				Code:    "E501",
+				Message: err.Error(),
+			})
+			c.Abort()
+			return
+		}
+
+		content_type := "application/x-pem-file"
+		c.Data(http.StatusOK, content_type, []byte(pem))
+
+	} else {
+		content_type := "application/pkix-cert; charset=utf-8"
+		byte_data := []byte(cadata[0].CertData)
+		c.Data(http.StatusOK, content_type, byte_data)
+	}
 
 	// こちらでも問題はない
 	// https://github.com/gin-gonic/gin/issues/468
@@ -328,172 +366,28 @@ func getCACert(c *gin.Context) {
 	//c.String(http.StatusOK, cadata[0].CertData)
 }
 
-// 発行されたサーバ証明書の情報を表示します
-//
-// ※特定の証明書の情報に限定されたときのみCER形式の証明書データを出力します
-func getServerCert(c *gin.Context) {
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	serial_qry := c.DefaultQuery("serial", "0")
-	serial, err := strconv.ParseUint(serial_qry, 10, 0)
-
-	if err != nil || serial > uint64(^uint32(0)) {
-		c.JSON(http.StatusBadRequest, errInvalidSerial)
-		c.Abort()
-		return
-	}
-
-	common_name := sanitize(c.DefaultQuery("cn", ""))
-	db_req := models.DBRequest{
-		Serial:     uint32(serial),
-		CommonName: common_name,
-	}
-
-	caid := cainfo.Id
-	svdata, err := repo.GetServerCerts(caid, db_req)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(svdata) == 1 {
-		c.Header("GOCM-REQUEST-SERIAL", fmt.Sprintf("%d", serial))
-		c.Header("GOCM-REQUEST-CN", common_name)
-
-		content_type := "application/pkix-cert; charset=utf-8"
-		byte_data := []byte(svdata[0].CertData)
-		c.Data(http.StatusOK, content_type, byte_data)
-
-	} else {
-		res := models.CertsResponse{
-			CAID:       caid,
-			Serial:     uint32(serial),
-			CommonName: common_name,
-		}
-		res.Certs = make([]models.CertSummary, len(svdata))
-
-		for i, data := range svdata {
-			res.Certs[i] = models.CertSummary{
-				Serial:         data.Serial,
-				CommonName:     data.CommonName,
-				CertType:       data.CertType,
-				Created:        data.Created,
-				ExpirationDate: data.ExpirationDate,
-			}
-		}
-
-		c.JSON(http.StatusOK, res)
-	}
+// 発行されたサーバ証明書の一覧を表示します
+func listServerCerts(c *gin.Context) {
+	listCertData(c, cert.SERVER)
 }
 
-// 発行されたクライアント証明書の情報を表示します
+// 発行されたクライアント証明書の一覧を表示します
+func listClientCerts(c *gin.Context) {
+	listCertData(c, cert.CLIENT)
+}
+
+// 発行されたサーバ証明書を取得します
 //
-// ※特定の証明書の情報に限定されたときのみPFX形式の証明書データを出力します
+// CER形式の証明書データを出力します
+func getServerCert(c *gin.Context) {
+	getCertificate(c, cert.SERVER)
+}
+
+// 発行されたクライアント証明書を取得します
+//
+// PFX形式の証明書データを出力します
 func getClientCert(c *gin.Context) {
-	if repo == nil {
-		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
-		c.Abort()
-		return
-	}
-
-	cainfo, ok := getCAInfoData(c)
-	if !ok {
-		return
-	}
-
-	serial_qry := c.DefaultQuery("serial", "0")
-	serial, err := strconv.ParseUint(serial_qry, 10, 0)
-
-	if err != nil || serial > uint64(^uint32(0)) {
-		c.JSON(http.StatusBadRequest, errInvalidSerial)
-		c.Abort()
-		return
-	}
-
-	common_name := sanitize(c.DefaultQuery("cn", ""))
-	db_req := models.DBRequest{
-		Serial:     uint32(serial),
-		CommonName: common_name,
-	}
-
-	password, ok := checkPassword(c, cainfo.Password)
-	if !ok {
-		return
-	}
-
-	caid := cainfo.Id
-	cldata, err := repo.GetClientCerts(caid, db_req)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, errFailedGetData)
-		c.Abort()
-		return
-	}
-
-	if len(cldata) == 1 {
-		default_pin := string([]rune(getNowString())[:10])
-		pin := sanitize(c.DefaultQuery("pin", default_pin))
-
-		clcert, err := cert.ToCertData(password, cldata[0])
-
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, ErrorMessage{
-				Code:    "E501",
-				Message: err.Error(),
-			})
-			c.Abort()
-			return
-		}
-
-		byte_data, err := clcert.ToPkcs12(pin)
-
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, ErrorMessage{
-				Code:    "E501",
-				Message: err.Error(),
-			})
-			c.Abort()
-			return
-		}
-
-		c.Header("GOCM-REQUEST-SERIAL", fmt.Sprintf("%d", serial))
-		c.Header("GOCM-REQUEST-CN", common_name)
-		c.Header("GOCM-REQUEST-PIN", pin)
-
-		content_type := "application/x-pkcs12"
-		c.Data(http.StatusOK, content_type, byte_data)
-
-	} else {
-		res := models.CertsResponse{
-			CAID:       caid,
-			Serial:     uint32(serial),
-			CommonName: common_name,
-		}
-		res.Certs = make([]models.CertSummary, len(cldata))
-
-		for i, data := range cldata {
-			res.Certs[i] = models.CertSummary{
-				Serial:         data.Serial,
-				CommonName:     data.CommonName,
-				CertType:       data.CertType,
-				Created:        data.Created,
-				ExpirationDate: data.ExpirationDate,
-			}
-		}
-
-		c.JSON(http.StatusOK, res)
-	}
+	getCertificate(c, cert.CLIENT)
 }
 
 // 新規CA証明書を発行します
@@ -553,6 +447,189 @@ func checkPassword(c *gin.Context, hashedPass string) (string, bool) {
 	}
 
 	return password, true
+}
+
+// サーバ・クライアント証明書の一覧を取得します
+func listCertData(c *gin.Context, certType cert.CertType) {
+	if repo == nil {
+		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
+		c.Abort()
+		return
+	}
+
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
+		return
+	}
+
+	common_name := sanitize(c.DefaultQuery("cn", ""))
+	db_req := models.DBRequest{
+		Serial:     0,
+		CommonName: common_name,
+	}
+
+	caid := cainfo.Id
+	var data []models.TranCertificate
+	var err error
+
+	if certType == cert.SERVER {
+		data, err = repo.GetServerCerts(caid, db_req)
+
+	} else if certType == cert.CLIENT {
+		data, err = repo.GetClientCerts(caid, db_req)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errFailedGetData)
+		c.Abort()
+		return
+	}
+
+	// TODO: これいらない
+	res := models.CertsResponse{
+		CAID:       caid,
+		Serial:     0,
+		CommonName: common_name,
+	}
+	res.Certs = make([]models.CertSummary, len(data))
+
+	for i, data := range data {
+		res.Certs[i] = models.CertSummary{
+			Serial:         data.Serial,
+			CommonName:     data.CommonName,
+			CertType:       data.CertType,
+			Created:        data.Created,
+			ExpirationDate: data.ExpirationDate,
+		}
+	}
+
+	c.JSON(http.StatusOK, res)
+}
+
+// サーバ・クライアント証明書を取得します
+func getCertificate(c *gin.Context, certType cert.CertType) {
+	if repo == nil {
+		c.JSON(http.StatusServiceUnavailable, errCannotConnectDB)
+		c.Abort()
+		return
+	}
+
+	cainfo, ok := getCAInfoData(c)
+	if !ok {
+		return
+	}
+
+	serial_prm := c.Param("serial")
+	serial, err := strconv.ParseUint(serial_prm, 10, 0)
+
+	if err != nil || serial > uint64(^uint32(0)) {
+		c.JSON(http.StatusBadRequest, errInvalidSerial)
+		c.Abort()
+		return
+	}
+
+	// CommonNameが空文字でもSQL問い合わせ時によしなに処理してくれる
+	db_req := models.DBRequest{
+		Serial:     uint32(serial),
+		CommonName: "",
+	}
+
+	caid := cainfo.Id
+	var tran_data []models.TranCertificate
+	var not_found ErrorMessage
+
+	if certType == cert.SERVER {
+		tran_data, err = repo.GetServerCerts(caid, db_req)
+		not_found = errNotFoundValidServerCert
+
+	} else if certType == cert.CLIENT {
+		tran_data, err = repo.GetClientCerts(caid, db_req)
+		not_found = errNotFoundValidClientCert
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errFailedGetData)
+		c.Abort()
+		return
+	}
+
+	if len(tran_data) == 0 {
+		c.JSON(http.StatusNotFound, not_found)
+		c.Abort()
+		return
+
+	} else if len(tran_data) > 1 {
+		c.JSON(http.StatusInternalServerError, errInvalidCertStore)
+		c.Abort()
+		return
+	}
+
+	c.Header("GOCM-REQUEST-SERIAL", fmt.Sprintf("%d", serial))
+
+	if strings.Contains(c.FullPath(), "secretkey") {
+		password, ok := checkPassword(c, cainfo.Password)
+		if !ok {
+			return
+		}
+
+		cert_data, err := cert.ToCertData(password, tran_data[0])
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorMessage{
+				Code:    "E501",
+				Message: err.Error(),
+			})
+			c.Abort()
+			return
+		}
+
+		format := sanitize(c.DefaultQuery("format", "pem"))
+
+		switch format {
+		case "pem":
+			pem, err := cert_data.PrivateKey.ToPem()
+
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, ErrorMessage{
+					Code:    "E501",
+					Message: err.Error(),
+				})
+				c.Abort()
+				return
+			}
+
+			content_type := "application/x-pem-file"
+			c.Data(http.StatusOK, content_type, []byte(pem))
+
+		case "pkcs12", "p12", "pfx":
+			default_pin := string([]rune(getNowString())[:10])
+			pin := sanitize(c.DefaultQuery("pin", default_pin))
+
+			if pin == "" {
+				pin = default_pin
+			}
+
+			pkcs12, err := cert_data.ToPkcs12(pin)
+
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, ErrorMessage{
+					Code:    "E501",
+					Message: err.Error(),
+				})
+				c.Abort()
+				return
+			}
+
+			c.Header("GOCM-REQUEST-PIN", pin)
+			content_type := "application/x-pkcs12"
+			c.Data(http.StatusOK, content_type, pkcs12)
+		}
+
+	} else {
+		content_type := "application/pkix-cert; charset=utf-8"
+		byte_data := []byte(tran_data[0].CertData)
+		c.Data(http.StatusOK, content_type, byte_data)
+	}
 }
 
 // 各種証明書を新規発行します
@@ -1066,28 +1143,6 @@ func getCACertRequest(c *gin.Context, data models.NewCACertRequest) (
 	return req, true
 }
 
-// DBとの接続についての初期処理を行います
-func initDB() *db.Repository {
-	driver, dsn, err := db.GetDataSourceName()
-	if err != nil {
-		fmt.Println("E001 :", err)
-		return nil
-	}
-
-	var dbmap *gorp.DbMap
-
-	switch driver {
-	case "mysql":
-		op, _ := sql.Open(driver, dsn)
-		dial := gorp.MySQLDialect{Engine: "InnoDB", Encoding: "utf8mb4"}
-
-		dbmap = &gorp.DbMap{Db: op, Dialect: dial, ExpandSliceArgs: true}
-		models.MapStructsToTables(dbmap)
-	}
-
-	return db.NewRepository(dbmap)
-}
-
 // サーバ証明書発行のための情報を取得します
 func getServerCertRequest(
 	data models.NewServerCertRequest) (*cert.CreateServerCertRequest, bool) {
@@ -1140,6 +1195,28 @@ func getServerCertRequest(
 	}
 
 	return &req, true
+}
+
+// DBとの接続についての初期処理を行います
+func initDB() *db.Repository {
+	driver, dsn, err := db.GetDataSourceName()
+	if err != nil {
+		fmt.Println("E001 :", err)
+		return nil
+	}
+
+	var dbmap *gorp.DbMap
+
+	switch driver {
+	case "mysql":
+		op, _ := sql.Open(driver, dsn)
+		dial := gorp.MySQLDialect{Engine: "InnoDB", Encoding: "utf8mb4"}
+
+		dbmap = &gorp.DbMap{Db: op, Dialect: dial, ExpandSliceArgs: true}
+		models.MapStructsToTables(dbmap)
+	}
+
+	return db.NewRepository(dbmap)
 }
 
 // 許可されている文字以外を除外します

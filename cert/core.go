@@ -320,10 +320,10 @@ func (c *CertData) UpdateCert(serial uint32, ca *CertData) (*CertData, error) {
 	return &data, nil
 }
 
-// クライアント証明書と秘密鍵をPFX形式のデータにします
+// クライアント証明書 or サーバ証明書と秘密鍵をPFX形式のデータにします
 func (c *CertData) ToPkcs12(pin string) ([]byte, error) {
-	if c.Type != CLIENT {
-		e := errors.New("クライアント証明書のデータを入力してください")
+	if c.Type == CA {
+		e := errors.New("CA証明書のデータには対応していません")
 		return nil, e
 	}
 
@@ -340,7 +340,7 @@ func (c *CertData) ToPkcs12(pin string) ([]byte, error) {
 func (c *CertData) TranCertificate(
 	password string) (models.TranCertificate, error) {
 
-	priv, err := c.PrivateKey.toPem()
+	priv, err := c.PrivateKey.ToPem()
 
 	if err != nil {
 		return models.TranCertificate{}, err
