@@ -351,7 +351,7 @@ func getCACert(c *gin.Context) {
 			return
 		}
 
-		content_type := "application/x-pem-file"
+		content_type := "application/x-pem-file; charset=utf-8"
 		c.Data(http.StatusOK, content_type, []byte(pem))
 
 	} else {
@@ -597,7 +597,7 @@ func getCertificate(c *gin.Context, certType cert.CertType) {
 				return
 			}
 
-			content_type := "application/x-pem-file"
+			content_type := "application/x-pem-file; charset=utf-8"
 			c.Data(http.StatusOK, content_type, []byte(pem))
 
 		case "pkcs12", "p12", "pfx":
