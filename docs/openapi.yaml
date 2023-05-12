@@ -1,0 +1,1367 @@
+openapi: 3.0.2
+info:
+  version: 0.1.0
+  title: オレオレ証明書管理API - gocm 
+  description: |
+    SQLデータベース上で証明書を管理するためのAPIです。<br>
+    ※MySQL / mariadb のみ対応
+  license:
+    name: MIT License
+    url: https://opensource.org/licenses/mit-license.php
+servers:
+  - url: https://api.example.com/v1
+tags:
+  - name: ca
+    description: CA認証局の管理用APIです。
+  - name: cacert
+    description: CA証明書管理用のAPIです。
+  - name: servercert
+    description: サーバ証明書管理用のAPIです。
+  - name: clientcert
+    description: クライアント証明書管理用のAPIです。
+paths:
+  /ca:
+    post:
+      tags:
+        - ca
+      summary: CA認証局の新規作成
+      description: |
+        CA認証局を新規作成します。<br>
+        レスポンスで取得する **ca_id** と **password** は**必ず**保存しておいてください。<br>
+        **再発行は不可能です。**
+      operationId: NewCA
+      responses:
+        201:
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewCAResponse"
+        500:
+          description: データの操作に失敗等
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedOperateData"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /ca/{ca_id}:
+    get:
+      tags:
+        - ca
+      summary: CA認証局内の証明書発行・破棄状況表示
+      description: CA認証局内の発行されている証明書や破棄された証明書の状況を一覧で表示します。
+      operationId: GetCAInfo
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      responses:
+        200:
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CAInfoResponse"
+        404:
+          description: IDが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidURL"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedGetData"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+    delete:
+      tags:
+        - ca
+      summary: CA認証局の破棄
+      description: CA認証局とそれらに紐づく証明書を全て削除します。
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        204:
+          description: 削除成功
+        403:
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedAccess"
+  /ca/{ca_id}/audit:
+    get:
+      tags:
+        - ca
+      summary: CA認証局内の証明書有効期限を監査
+      description: |
+        CA認証局内のすべての証明書について、有効期限を監査します。<br>
+        パラメータで指定した日数以内に有効期限を迎える証明書について一覧で表示します。
+      operationId: AuditCerts
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/days"
+      responses:
+        200:
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditResponse"
+        404:
+          description: IDが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidURL"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedGetData"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/ca/{ca_id}:
+    post:
+      tags:
+        - cacert
+      summary: CA証明書発行
+      description: CA証明書を発行します。
+      operationId: NewCACert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      requestBody:
+        description: CA証明書発行用構造体
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewCACertRequest"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        201:
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewCertResponse"
+        400:
+          description: リクエストデータが不正
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidRequestedData"
+                  - $ref: "#/components/schemas/ErrIncompatibleBits"
+                  - $ref: "#/components/schemas/ErrInvalidAlgorithm"
+        403:
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedAccess"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidCACert"
+        409:
+          description: 有効なCA証明書が存在する
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrExistsValidCACert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+    put:
+      tags:
+        - cacert
+      summary: CA証明書更新
+      description: |
+        CA証明書を更新します。<br><br>
+        ただし、有効なCA証明書が存在する場合、もしくは有効期限切れのCA証明書しかない場合のみ更新されます。<br>
+        それ以外の場合は新規作成をしてください。
+      operationId: UpdateCACert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        201:
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewCertResponse"
+        400:
+          description: リクエストデータが不正
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidRequestedData"
+        403:
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedAccess"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidCACert"
+        409:
+          description: 有効なCA証明書が存在する
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrExistsValidCACert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrFailedOperateData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+    get:
+      tags:
+        - cacert
+      summary: CA証明書データ取得
+      description: CA証明書のデータをCER形式で取得します。
+      operationId: GetCACert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      responses:
+        200:
+          description: 取得成功
+          content:
+            application/pkix-cert; charset=utf-8:
+              schema:
+                type: string
+              example: |
+                -----BEGIN CERTIFICATE-----
+                abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/+
+                ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/+
+                0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/+
+                xx==
+                -----END CERTIFICATE-----
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidCACert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/ca/{ca_id}/secretkey:
+    get:
+      tags:
+        - cacert
+      summary: CA証明書の秘密鍵を取得
+      description: CA証明書の秘密鍵をPEM形式で取得します。
+      operationId: GetCASecretKey
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        200:
+          description: 取得成功
+          content:
+            application/x-pem-file; charset=utf-8:
+              schema:
+                type: string
+              example: |
+                -----BEGIN EC PRIVATE KEY-----
+                abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/+
+                ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/+
+                ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789xx==
+                -----END EC PRIVATE KEY-----
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidCACert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/server/{ca_id}:
+    post:
+      tags:
+        - servercert
+      summary: サーバ証明書発行
+      description: サーバ証明書を発行します。
+      operationId: NewServerCert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      requestBody:
+        description: サーバ証明書発行用構造体
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewServerCertRequest"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        201:
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewCertResponse"
+        400:
+          description: リクエストデータが不正
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidRequestedData"
+                  - $ref: "#/components/schemas/ErrInvalidSANs"
+        403:
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedAccess"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidCACert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+    get:
+      tags:
+        - servercert
+      summary: サーバ証明書一覧取得
+      description: サーバ証明書の発行状況を取得します。
+      operationId: ListServerCerts
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/cn"
+      responses:
+        200:
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertsResponse"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidURL"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedGetData"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/server/{ca_id}/{serial}:
+    put:
+      tags:
+        - servercert
+      summary: サーバ証明書更新
+      description: サーバ証明書を更新します。
+      operationId: UpdateServerCert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/serial"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        201:
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewCertResponse"
+        400:
+          description: リクエストデータが不正
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidRequestedData"
+        403:
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedAccess"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidServerCert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrFailedOperateData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+    get:
+      tags:
+        - servercert
+      summary: サーバ証明書取得
+      description: サーバ証明書のデータをCER形式で取得します。
+      operationId: GetServerCert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/serial"
+      responses:
+        200:
+          $ref: "#/components/responses/CERCertData"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrInvalidSerial"
+                  - $ref: "#/components/schemas/ErrNotFoundValidServerCert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/server/{ca_id}/{serial}/secretkey:
+    get:
+      tags:
+        - servercert
+      summary: サーバ証明書の秘密鍵を取得
+      description: サーバ証明書の秘密鍵を指定された形式で取得します。
+      operationId: GetServerSecretKey
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/serial"
+        - $ref: "#/components/parameters/format"
+        - $ref: "#/components/parameters/pin"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        200:
+          $ref: "#/components/responses/PEMCertData"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrInvalidSerial"
+                  - $ref: "#/components/schemas/ErrNotFoundValidServerCert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/client/{ca_id}:
+    post:
+      tags:
+        - clientcert
+      summary: クライアント証明書発行
+      description: クライアント証明書を発行します。
+      operationId: NewClientCert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+      requestBody:
+        description: クライアント証明書発行用構造体
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewClientCertRequest"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        201:
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewCertResponse"
+        400:
+          description: リクエストデータが不正
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidRequestedData"
+        403:
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedAccess"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidCACert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+    get:
+      tags:
+        - clientcert
+      summary: クライアント証明書一覧取得
+      description: サーバ証明書の発行状況を取得します。
+      operationId: ListClientCerts
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/cn"
+      responses:
+        200:
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertsResponse"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidURL"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedGetData"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/client/{ca_id}/{serial}:
+    put:
+      tags:
+        - clientcert
+      summary: クライアント証明書更新
+      description: クライアント証明書を更新します。
+      operationId: UpdateClientCert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/serial"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        201:
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewCertResponse"
+        400:
+          description: リクエストデータが不正
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrInvalidRequestedData"
+        403:
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrFailedAccess"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrNotFoundValidClientCert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrFailedOperateData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+    get:
+      tags:
+        - clientcert
+      summary: クライアント証明書取得
+      description: クライアント証明書のデータをCER形式で取得します。
+      operationId: GetClientCert
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/serial"
+      responses:
+        200:
+          $ref: "#/components/responses/CERCertData"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrInvalidSerial"
+                  - $ref: "#/components/schemas/ErrNotFoundValidClientCert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+  /certs/client/{ca_id}/{serial}/secretkey:
+    get:
+      tags:
+        - clientcert
+      summary: クライアント証明書の秘密鍵を取得
+      description: クライアント証明書の秘密鍵を指定された形式で取得します。
+      operationId: GetClientSecretKey
+      parameters:
+        - $ref: "#/components/parameters/ca_id"
+        - $ref: "#/components/parameters/serial"
+        - $ref: "#/components/parameters/format"
+        - $ref: "#/components/parameters/pin"
+      security:
+        - GOCM-CA-PASSWORD: []
+      responses:
+        200:
+          $ref: "#/components/responses/PEMCertData"
+        404:
+          description: リソースが存在しない
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrInvalidURL"
+                  - $ref: "#/components/schemas/ErrInvalidSerial"
+                  - $ref: "#/components/schemas/ErrNotFoundValidClientCert"
+        500:
+          description: データの取得に失敗等
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrFailedGetData"
+                  - $ref: "#/components/schemas/ErrInvalidCertStore"
+        503:
+          description: DBとの接続に失敗
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrCannotConnectDB"
+
+components:
+  parameters:
+    ca_id:
+      in: path
+      name: ca_id
+      description: CA認証局に与えられる固有ID
+      required: true
+      schema:
+        type: string
+      example: 12345678-abcd-cdef-0123456789abcdef0
+    serial:
+      in: path
+      name: serial
+      description: 証明書のシリアル番号
+      required: true
+      schema:
+        type: integer
+        format: uint32
+      example: 2
+    days:
+      in: query
+      name: days
+      description: |
+        【オプション】監査をする有効期限までの日数を指定します。<br><br>
+        1以上、365以下の数字を指定することができます。<br>
+        それ以外の数字は強制的に **30** になります。
+      required: false
+      schema:
+        type: integer
+        default: 30
+        minimum: 1
+        maximum: 365
+      example: 10
+    cn:
+      in: query
+      name: cn
+      description: |
+        【オプション】証明書のCommonName<br><br>
+        リストの出力を絞るときに使用します。
+      required: false
+      schema:
+        type: string
+        default: ""
+      examples:
+        server:
+          summary: サーバ証明書の例
+          value: "test.example.com"
+        client:
+          summary: クライアント証明書の例
+          value: "testuser"
+    format:
+      in: query
+      name: format
+      description: |
+        【オプション】指定した形式で秘密鍵を出力します。<br><br>
+        PEM形式かPKCS#12形式を選択できます。<br>
+        デフォルトはPEM形式です。<br>
+        PEM形式の場合は **pem** を、PKCS#12形式の場合は **p12, pfx, pkcs12** のいずれかを指定してください。<br>
+        PKCS#12形式の場合は、証明書と秘密鍵がセットになります。
+      required: false
+      schema:
+        type: string
+        default: pem
+        enum:
+          - pem
+          - p12
+          - pfx
+          - pkcs12
+      examples:
+        pem:
+          summary: PEM形式
+          value: pem
+        pkcs12:
+          summary: PKCS#12形式
+          value: p12
+    pin:
+      in: query
+      name: pin
+      description: |
+        【オプション】PKCS#12形式で証明書と秘密鍵を出力する際に指定するPINコードです。<br><br>
+        デフォルトはハイフン入りの今日の日付が指定されます。<br>
+        ※空白を指定した場合もハイフン入りの今日の日付が指定されます。<br>
+        　また、**a-z, A-Z, 0-9, \*-._** の文字のみ指定可能です。
+      required: false
+      schema:
+        type: string
+        default: YYYY-mm-dd
+      examples:
+        default:
+          summary: デフォルト
+          value: "2020-02-20"
+  schemas:
+    CertSummary:
+      type: object
+      properties:
+        serial:
+          type: integer
+          format: uint32
+        common_name:
+          type: string
+        cert_type:
+          type: string
+          enum:
+            - "UNKNOWN"
+            - "CA"
+            - "SERVER"
+            - "CLIENT"
+        created:
+          type: string
+          format: date-time
+        expiration_date:
+          type: string
+          format: date-time
+      example:
+        serial: 2
+        common_name: "test.example.com"
+        cert_type: "SERVER"
+        created: "2006-01-02T03:04:05"
+        expiration_date: "2007-01-02T03:04:05"
+    SlimCertData:
+      type: object
+      properties:
+        ca_id:
+          type: string
+        serial:
+          type: integer
+          format: uint32
+        common_name:
+          type: string
+        cert_type:
+          type: string
+          enum:
+            - "UNKNOWN"
+            - "CA"
+            - "SERVER"
+            - "CLIENT"
+        created:
+          type: string
+          format: date-time
+        expiration_date:
+          type: string
+          format: date-time
+        is_revoked:
+          type: integer
+          enum:
+            - 0
+            - 1
+        revoked:
+          type: string
+          format: date-time
+      example:
+        ca_id: 12345678-abcd-cdef-0123456789abcdef0
+        serial: 3
+        common_name: "revoked.example.com"
+        cert_type: "SERVER"
+        created: "2006-01-02T03:04:05"
+        expiration_date: "2007-01-02T03:04:05"
+        is_revoked: 1
+        revoked: "2006-05-04T03:02:01"
+    Subject:
+      type: object
+      properties:
+        common_name:
+          type: string
+        country:
+          type: string
+        state:
+          type: string
+        locality:
+          type: string
+        organization:
+          type: string
+      example:
+        common_name: "Private CA"
+        country: "JP"
+        state: "Tokyo"
+        locality: "Chuou-ku"
+        organization: "Example Corp."
+    NewCAResponse:
+      type: object
+      properties:
+        ca_id:
+          type: string
+        password:
+          type: string
+      example:
+        ca_id: 12345678-abcd-cdef-0123456789abcdef0
+        password: pk.abcdefghijklmnopqrstuvwxyz_ABCDEFGH-JKLMN12=
+    CAInfoResponse:
+      type: object
+      properties:
+        ca_id:
+          type: string
+        valid_certs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CertSummary"
+        invalid_certs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlimCertData"
+      example:
+        ca_id: 12345678-abcd-cdef-0123456789abcdef0
+        valid_certs:
+          [{
+            serial: 2,
+            common_name: "test.example.com",
+            cert_type: "SERVER",
+            created: "2006-01-02T03:04:05",
+            expiration_date: "2007-01-02T03:04:05",
+          }]
+        invalid_certs:
+          [{
+            ca_id: "12345678-abcd-cdef-0123456789abcdef0",
+            serial: 3,
+            common_name: "revkoed.example.com",
+            cert_type: "SERVER",
+            created: "2006-01-02T03:04:05",
+            expiration_date: "2007-01-02T03:04:05",
+            is_revoked: 1,
+            revoked: "2006-05-04T03:02:01",
+          }]
+    AuditResponse:
+      type: object
+      properties:
+        ca_id:
+          type: string
+        days:
+          type: integer
+        expected_date:
+          type: string
+          format: date-time
+        certs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CertSummary"
+      example:
+        ca_id: 12345678-abcd-cdef-0123456789abcdef0
+        days: 30
+        expected_date: "2007-01-10T00:00:00"
+        certs:
+          [{
+            serial: 2,
+            common_name: "test.example.com",
+            cert_type: "SERVER",
+            created: "2006-01-02T03:04:05",
+            expiration_date: "2007-01-02T03:04:05",
+          }]
+    CertsResponse:
+      type: object
+      properties:
+        ca_id:
+          type: string
+        count:
+          type: integer
+        common_name:
+          type: string
+        certs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CertSummary"
+      example:
+        ca_id: 12345678-abcd-cdef-0123456789abcdef0
+        count: 1
+        common_name: ""
+        certs:
+          [{
+            serial: 2,
+            common_name: "test.example.com",
+            cert_type: "SERVER",
+            created: "2006-01-02T03:04:05",
+            expiration_date: "2007-01-02T03:04:05",
+          }]
+    NewCertResponse:
+      type: object
+      properties:
+        ca_id:
+          type: string
+        serial:
+          type: integer
+          format: uint32
+        common_name:
+          type: string
+      example:
+        ca_id: 12345678-abcd-cdef-0123456789abcdef0
+        serial: 1
+        common_name: "Private CA"
+    NewCACertRequest:
+      type: object
+      properties:
+        subject:
+          $ref: "#/components/schemas/Subject"
+        private_key_algorithm:
+          type: string
+          enum:
+            - RSA
+            - ECDSA
+            - ED25519
+        bits:
+          description: RSA： **2048, 4096** ECDSA： **256, 384, 521**
+          type: integer
+          enum:
+            - 2048
+            - 4096
+            - 256
+            - 384
+            - 521
+      example:
+        subject:
+          common_name: "Private CA"
+          country: "JP"
+          state: "Tokyo"
+          locality: "Chuou-ku"
+          organization: "Example Corp."
+        private_key_algorithm: "RSA"
+        bits: 2048
+    NewServerCertRequest:
+      type: object
+      properties:
+        common_name:
+          type: string
+        subject_alt_name:
+          type: array
+          items:
+            type: string
+            enum:
+              - "DNS:xxxxx"
+              - "IP:xxxxx"
+              - "URI:xxxxx"
+              - "email:xxxxx"
+      example:
+        common_name: "test.example.com"
+        subject_alt_name:
+          - "DNS:test.example.com"
+          - "IP:192.168.0.1"
+    NewClientCertRequest:
+      type: object
+      properties:
+        common_name:
+          type: string
+      example:
+        common_name: testuser
+    ErrCannotConnectDB:
+      description: DBと接続できません
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E001
+        message: DBと接続できません
+    ErrFailedOperateData:
+      description: データの操作に失敗しました
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E002
+        message: データの操作に失敗しました
+    ErrFailedGetData:
+      description: データの取得に失敗しました
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E003
+        message: データの取得に失敗しました
+    ErrInvalidRequestedData:
+      description: リクエストされたデータが不正です
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E101
+        message: リクエストされたデータが不正です
+    ErrInvalidAlgorithm:
+      description: 不正なアルゴリズムが指定されています
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E102
+        message: 不正なアルゴリズムが指定されています
+    ErrIncompatibleBits:
+      description: 指定されたアルゴリズムに対して非対応のビット数です
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E103
+        message: 指定されたアルゴリズムに対して非対応のビット数です
+    ErrInvalidURL:
+      description: リクエストされたURLが正しくありません
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E104
+        message: リクエストされたURLが正しくありません
+    ErrInvalidSANs:
+      description: Subject AltNameとして有効なデータが存在しませんでした
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E105
+        message: Subject AltNameとして有効なデータが存在しませんでした
+    ErrInvalidSerial:
+      description: Serial値が有効な数値ではありません
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E106
+        message: Serial値が有効な数値ではありません
+    ErrExistsValidCACert:
+      description: 既に有効なCA証明書が存在しています
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E201
+        message: 既に有効なCA証明書が存在しています
+    ErrNotFoundValidCACert:
+      description: 有効なCA証明書が存在しません
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E202
+        message: 有効なCA証明書が存在しません
+    ErrInvalidCertStore:
+      description: 証明書ストアが不正な状態になっています
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E203
+        message: 証明書ストアが不正な状態になっています
+    ErrNotFoundValidServerCert:
+      description: 有効なサーバ証明書が存在しません
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E204
+        message: 有効なサーバ証明書が存在しません
+    ErrNotFoundValidClientCert:
+      description: 有効なクライアント証明書が存在しません
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E205
+        message: 有効なクライアント証明書が存在しません
+    ErrFailedAccess:
+      description: 証明書へのアクセス権限がありません
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      example:
+        error: E301
+        message: 証明書へのアクセス権限がありません
+  responses:
+    CERCertData:
+      description: 証明書取得成功
+      headers:
+        GOCM-REQUEST-SERIAL:
+          description: リクエスト時に指定したSerial値
+          schema:
+            type: integer
+            format: uint32
+          example: 2
+      content:
+        application/pkix-cert; charset=utf-8:
+          schema:
+            type: string
+          example: |
+            -----BEGIN CERTIFICATE-----
+            abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/+
+            ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/+
+            0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/+
+            xx==
+            -----END CERTIFICATE-----
+    PEMCertData:
+      description: 秘密鍵取得成功
+      headers:
+        GOCM-REQUEST-SERIAL:
+          description: リクエスト時に指定したSerial値
+          schema:
+            type: integer
+            format: uint32
+          example: 2
+        GOCM-REQUEST-PIN:
+          description: 【PKCS#12形式のみ】PINコード
+          schema:
+            type: string
+          example: example
+      content:
+        application/x-pem-file; charset=utf-8:
+          schema:
+            type: string
+          example: |
+            -----BEGIN EC PRIVATE KEY-----
+            abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/+
+            ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/+
+            ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789xx==
+            -----END EC PRIVATE KEY-----
+        application/x-pkcs12:
+          schema:
+            type: string
+            format: binary
+  securitySchemes:
+    GOCM-CA-PASSWORD:
+      type: apiKey
+      name: GOCM-CA-PASSWORD
+      in: header
